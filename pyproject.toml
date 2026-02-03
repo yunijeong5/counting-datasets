@@ -1,0 +1,69 @@
+[build-system]
+requires = ["setuptools>=68", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "counting-dataset"
+version = "0.1.0"
+description = "Unified API and indexing tools for multiple object-counting datasets"
+readme = "README.md"
+requires-python = ">=3.10"
+license = { text = "MIT" }
+authors = [
+  { name = "Seoyun (Yuni) Jeong" },
+]
+keywords = ["computer-vision", "counting", "datasets", "annotations", "coco"]
+classifiers = [
+  "Programming Language :: Python :: 3",
+  "License :: OSI Approved :: MIT License",
+  "Operating System :: OS Independent",
+]
+dependencies = [
+  "numpy>=1.23",
+  "pillow>=9.0",
+  "tqdm>=4.0",
+]
+
+[project.optional-dependencies]
+dev = [
+  "pytest>=7.0",
+  "ruff>=0.4",
+  "mypy>=1.5",
+]
+torch = [
+  "torch>=2.0",
+]
+
+# Optional: If you later add a CLI at counting/src/counting_dataset/cli/main.py
+# (with a main() function), you can enable this and users will get a
+# `counting-dataset` command after installation.
+#
+# [project.scripts]
+# counting-dataset = "counting_dataset.cli.main:main"
+
+[tool.setuptools]
+package-dir = { "" = "counting/src" }
+
+[tool.setuptools.packages.find]
+where = ["counting/src"]
+include = ["counting_dataset*"]
+
+[tool.setuptools.package-data]
+# Include any non-code files INSIDE the package (not raw images).
+# You can add json/yaml templates here later if needed. # TODO: what is this??
+counting_dataset = ["py.typed"]
+
+[tool.pytest.ini_options]
+testpaths = ["counting/tests"]
+addopts = "-q"
+
+[tool.ruff]
+line-length = 100
+target-version = "py310"
+
+[tool.mypy]
+python_version = "3.10"
+warn_return_any = true
+warn_unused_configs = true
+disallow_untyped_defs = false
+ignore_missing_imports = true
