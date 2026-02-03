@@ -15,6 +15,7 @@ venv/
 raw/
 raw_compressed/
 counting/data/
+dev_no_export/
 
 # SQLite temp / WAL files
 *.sqlite
