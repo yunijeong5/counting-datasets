@@ -1,0 +1,30 @@
+# Python
+__pycache__/
+*.py[cod]
+*.so
+*.egg-info/
+.dist/
+build/
+
+# Virtual environments
+.venv/
+venv/
+.env/
+
+# Data (DO NOT COMMIT)
+raw/
+raw_compressed/
+counting/data/
+
+# SQLite temp / WAL files
+*.sqlite
+*.sqlite-wal
+*.sqlite-shm
+*.db
+
+# Logs
+*.log
+
+# OS
+.DS_Store
+Thumbs.db
