@@ -1,65 +1,233 @@
-# Counting Large Numbers
+# Counting Dataset API
+
+A unified, extensible API for **object counting datasets**, providing a normalized index, consistent schemas, and flexible query interfaces across heterogeneous data sources.
+
+This project is designed to support research in **object counting** and **dataset benchmarking** by abstracting away dataset-specific quirks while preserving rich annotation semantics.
+
+## Key Features
+
+- **Unified indexing layer** for diverse counting datasets
+- **Support for heterogeneous annotations**
+  - points
+  - axis-aligned bounding boxes (HBB)
+  - oriented bounding boxes (OBB)
+  - crowd-sourced annotations
+  - auxiliary annotations (exemplars, alternative geometries)
+- **Immutable SQLite index** for fast, reproducible queries
+- **Adapter-based architecture** for easy dataset extension
+- **Image-centric and class-centric dataset views**
+- **HPC-friendly build process** (robust to network filesystems)
+
+## Integrated Datasets
+
+The API currently integrates the following datasets:
+
+- Aerial Elephant Dataset
+- DOTA v1.5
+- FSC-147
+- Kenyan Wildlife Aerial Survey
+- Malaria Infected Human Blood Smears
+- Penguins (crowd-sourced)
+
+A detailed overview, including dataset statistics, licenses, and citations, is available in  
+👉 **[`datasets.md`](datasets.md)**
 
 ---
 
-## Schema Overview
+## Project Structure
 
-Our internal canonical schema has three levels: class, image, and instance annotation.
+```
+counting-datasets/
+├── counting/
+│   ├── src/            # Core library code
+│   ├── data/           # Built SQLite index (optional, not tracked)
+│   └── tests/
+├── raw/                # Raw datasets (NOT tracked)
+├── design.md           # Architecture & design rationale
+├── datasets.md         # Dataset descriptions & statistics
+├── usage_example.py    # End-to-end example
+└── pyproject.toml
+```
 
-### 1. Class (category) level
-
-Represents a concept like “FSC147 bird” or “DOTA plane”. Associated object is `ClassRecord`. Primary key is `class_key`, like "FSC147/bird" or "dota_v15/plane". That is, one `ClassRecord` per one `class_key`.
-
--> Unique by (dataset, class name)
-
-### 2. Image level
-
-Represents one image file (e.g., PNG, JPG). Associated object is `ImageRecord`. Primary key is `image_id` (hashed string). That is, one `ImageRecord` per unique <dataset, original_relpath>
-
--> Unique by (dataset, normalized original relative path)
-
-In this schema, counts are derived summaries at the image level. So for most cases:
-
-`ImageRecord.counts[class_key] == number of InstanceAnnotationRecord rows with same image_id and class_key`
-
-Exception is when the dataset provides counts without instances. Then we store the provided count and optionally have zero instances.
+Raw datasets are **not included** in the repository. See below for guidance.
 
 
-### 3. Instance annotation level
+## Installation
 
-Represents one labeled object instance in one image for one class. Associated object is `InstanceAnnotationRecord`. Primary key is `ann_id`. Each instance is associated with two foreign keys: `image_id` and `class_key`. That is, one `InstanceAnnotationRecord` per object instance. 
+This project uses a standard Python packaging layout.
 
--> Unique by (`image_id`, `class_key`, `ann_type`, `geometry`, `source`, `salt`)
+```bash
+git clone https://github.com/yunijeong5/counting-datasets.git
+cd counting-datasets
+pip install -e .
+```
 
-NOTE: To guarantee uniqueness even with duplicate geometry, adapters should always set `salt` deterministically.
+Python ≥ 3.9 is recommended.
+
+## Quick Start
+
+### 1. Prepare raw datasets
+
+Download raw datasets into the `raw/` directory using the the following expected layouts.
+
+[TODO: Add download instructions for raw data]
+
+Dataset-specific directory structures are also documented in the adapters and in `datasets.md`.
 
 
 ---
 
-## Adapters
+### 2. Build the index
 
-### What an adapter does (per-dataset, “extractor” layer)
+```python
+from pathlib import Path
+from counting_dataset.index.builder import IndexBuilder
+from counting_dataset.adapters import (
+    AerialElephantAdapter,
+    DOTAAdapter,
+    FSC147Adapter,
+    KenyanWildlifeAdapter,
+    MalariaAdapter,
+    PenguinAdapter,
+)
 
-- Reads raw dataset files with all their quirks
-- Emits canonical records:
-    - ImageRecord (image metadata + provenance + split)
-    - ClassRecord (dataset-scoped classes)
-    - InstanceAnnotationRecord (instances with geometry)
-- Keeps ordering deterministic
+builder = IndexBuilder(
+    raw_root=Path("raw"),
+    out_root=Path("counting/data"),
+)
 
-Adapters are dataset-specific and do not implement global policy. E.g., they don’t drop “small classes”; that’s curation. This means that adapters can stay simple and do not need cross-dataset knowledge.
+db_path = builder.build(
+    adapters=[
+        AerialElephantAdapter(),
+        DOTAAdapter(),
+        FSC147Adapter(),
+        KenyanWildlifeAdapter(),
+        MalariaAdapter(),
+        PenguinAdapter(include_unlabeled=False),
+    ],
+    overwrite=True,
+    show_progress=True,
+)
 
-## Index Builders
+print("Index built at:", db_path)
+```
 
-### What the index builder does (“compiler” layer)
+This produces a single SQLite database (`index.sqlite`) containing normalized images, annotations, and derived statistics at `db_path`.
 
-- Consumes all adapters
-- Validates records + resolves collisions (if any)
-- Writes everything to SQLite / manifests
-- Computes *derived* things:
-    - counts (per image/class)
-    - per-class num_images, mean count, etc.
-- Applies filtering policy (min_images, allowed ann types, etc.) to produce the curated “view”
-- Provides versioning / build metadata
 
-### Why use BLAKE2b hashing for IDs?
+### 3. Load datasets
+
+```python
+from counting_dataset import CountingDatasetIndex
+
+index = CountingDatasetIndex("counting/data/index.sqlite") # sample db_path
+
+dataset = index.load_dataset(
+    dataset="dota"
+    splits={"train"},
+    min_total_count=100,
+)
+
+for img, target in dataset:
+    print(target["counts"])
+    break
+```
+
+You can also load **class-centric** datasets:
+
+```python
+cls_ds = index.load_class(
+    class_key="dota/small_vehicle",
+    splits={"train"},
+)
+
+img, target = cls_ds[0]
+print(target["count"])
+```
+
+## End-to-End Example
+
+The repository includes a fully working end-to-end script as a sample: `usage_example.py`.
+
+This script demonstrates:
+
+- building the SQLite index from raw datasets,
+- inspecting available datasets, splits, and classes,
+- loading image-centric and class-centric datasets,
+- iterating over samples and inspecting targets.
+
+### Running the example
+
+After downloading raw datasets into `raw/`, simply run:
+
+```bash
+python usage_example.py
+```
+
+## Design Philosophy
+
+* **Adapters are pure readers**
+  * No database access
+  * No filtering based on experimental intent
+* **All filtering happens at query time**
+* **Counting semantics are explicit**
+  * Only `role="instance"` annotations contribute to counts
+* **The index is immutable**
+  * Rebuild to change data or logic
+* **Traceability is preserved**
+  * Raw identifiers and metadata are retained
+
+For a detailed explanation of the architecture, schema, and design decisions, see
+👉 **[`design.md`](design.md)**
+
+## Extending the Project
+
+To add a new dataset:
+
+1. Implement a dataset adapter exposing:
+
+   * `iter_classes(ctx)`
+   * `iter_images(ctx)`
+   * `iter_annotations(ctx)`
+2. Register the adapter in your build script
+3. Rebuild the index
+
+A template adapter is provided in the repository for reference.
+
+## Export Utilities
+
+[TODO: export in COCO/JSON format]
+
+## Example Training Loop 
+
+[TODO: sample script using dataset loaders to train/test model]
+
+
+## What This Project Is (and Is Not)
+
+**This project provides:**
+
+* Dataset normalization
+* Indexing and querying
+* Dataset views for counting research
+
+**This project does NOT (yet) provide:**
+
+* Training loops
+* Model implementations
+* Evaluation scripts
+
+Those are intentionally left to downstream research code.
+
+## Licensing
+
+This repository contains **no raw datasets**.
+
+Each dataset is distributed under its original license.
+Please consult **[`datasets.md`](datasets.md)** for per-dataset licensing and citations.
+
+
+## References
+
+This project integrates and builds upon work by many dataset authors and research groups.
+Full references are provided in `datasets.md`.

@@ -56,7 +56,7 @@ def _peek_image_dataset(ds, title: str, n: int = 2):
 
 def main():
     index_dest = Path("counting/data")
-    rebuild_index = False
+    rebuild_index = True
 
     # ------------------------------------------------------------------
     # Build Index
@@ -102,57 +102,56 @@ def main():
     # ------------------------------------------------------------------
     # DOTA (v1.5)
     # ------------------------------------------------------------------
-    # _print_class_summary(index, "dota", apply_policy=False, limit=10)
+    _print_class_summary(index, "dota", apply_policy=False, limit=10)
 
-    # print("\n=== DOTA: load_dataset('dota') (image-centric) ===")
-    # ds_dota = index.load_dataset(
-    #     "dota",
-    #     split="train",
-    #     load_images=False,
-    #     min_total_count=1,  # ensure at least one canonical instance
-    #     on_missing_split="warn",
-    #     natural_sort=True,
-    # )
-    # _peek_image_dataset(ds_dota, "DOTA image-centric peek")
+    print("\n=== DOTA: load_dataset('dota') (image-centric) ===")
+    ds_dota = index.load_dataset(
+        "dota",
+        split="train",
+        load_images=False,
+        min_total_count=1,  # ensure at least one canonical instance
+        on_missing_split="warn",
+        natural_sort=True,
+    )
+    _peek_image_dataset(ds_dota, "DOTA image-centric peek")
 
-    # # Sanity checks:
-    # # - instances should be OBB (role="instance") and contribute to counts
-    # # - HBB should appear under aux["hbb"]
-    # if len(ds_dota) > 0:
-    #     img, tgt = ds_dota[0]
-    #     print("\nDOTA sanity checks on first sample:")
+    # Sanity checks:
+    # - instances should be OBB (role="instance") and contribute to counts
+    # - HBB should appear under aux["hbb"]
+    if len(ds_dota) > 0:
+        img, tgt = ds_dota[0]
+        print("\nDOTA sanity checks on first sample:")
 
-    #     # show one class bucket’s instance ann_types
-    #     inst = tgt.get("instances", {}) or {}
-    #     if inst:
-    #         ck0 = sorted(inst.keys())[0]
-    #         anns0 = inst[ck0]
-    #         ann_types0 = sorted({a.get("ann_type") for a in anns0})
-    #         print(
-    #             f"  instances bucket example: {ck0} -> {len(anns0)} anns, ann_types={ann_types0}"
-    #         )
-    #         print(anns0[0])
-    #     else:
-    #         print(
-    #             "  [WARN] instances is empty on first sample (unexpected if min_total_count=1)."
-    #         )
+        # show one class bucket’s instance ann_types
+        inst = tgt.get("instances", {}) or {}
+        if inst:
+            ck0 = sorted(inst.keys())[0]
+            anns0 = inst[ck0]
+            ann_types0 = sorted({a.get("ann_type") for a in anns0})
+            print(
+                f"  instances bucket example: {ck0} -> {len(anns0)} anns, ann_types={ann_types0}"
+            )
+            print(anns0[0])
+        else:
+            print(
+                "  [WARN] instances is empty on first sample (unexpected if min_total_count=1)."
+            )
 
-    #     aux = tgt.get("aux", {}) or {}
-    #     hbb_aux = aux.get("hbb", {}) or {}
-    #     if hbb_aux:
-    #         ck0 = sorted(hbb_aux.keys())[0]
-    #         boxes = hbb_aux[ck0]
-    #         print(
-    #             f"  aux['hbb'] present for class {ck0}: {len(boxes)} (showing up to 2)"
-    #         )
-    #         for b in boxes[:2]:
-    #             print("    hbb:", b["geometry"])
-    #     else:
-    #         print("  aux['hbb']: (none in this sample)")
+        aux = tgt.get("aux", {}) or {}
+        hbb_aux = aux.get("hbb", {}) or {}
+        if hbb_aux:
+            ck0 = sorted(hbb_aux.keys())[0]
+            boxes = hbb_aux[ck0]
+            print(
+                f"  aux['hbb'] present for class {ck0}: {len(boxes)} (showing up to 2)"
+            )
+            for b in boxes[:2]:
+                print("    hbb:", b["geometry"])
+        else:
+            print("  aux['hbb']: (none in this sample)")
 
     # Class-centric load: pick one DOTA class
-    # dota_classes = index.get_classes(datasets=["dota"], apply_policy=False)
-    dota_classes = [{"class_key": "dota/harbor"}]
+    dota_classes = index.get_classes(datasets=["dota"], apply_policy=False)
     if dota_classes:
         dota_ck = dota_classes[0]["class_key"]
         print(f"\n=== DOTA: load_class({dota_ck}) ===")
@@ -172,8 +171,6 @@ def main():
             print("  sample image:", img)
             print("  class count in image:", tgt["count"])
             print("  instances: ", tgt["instances"][:2])
-
-    exit()
 
     # ------------------------------------------------------------------
     # FSC147
