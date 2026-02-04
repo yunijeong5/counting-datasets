@@ -15,7 +15,7 @@ venv/
 # Data (DO NOT COMMIT)
 raw/
 raw_compressed/
-counting/data/
+counting/data*/
 dev_no_export/
 
 # SQLite temp / WAL files
