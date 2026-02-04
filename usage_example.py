@@ -56,7 +56,7 @@ def _peek_image_dataset(ds, title: str, n: int = 2):
 
 def main():
     index_dest = Path("counting/data")
-    rebuild_index = True
+    rebuild_index = False
 
     # ------------------------------------------------------------------
     # Build Index
@@ -98,6 +98,39 @@ def main():
     for ds_name in ds_list:
         print(f"\n--- Available splits ({ds_name}) ---")
         print(index.available_splits(dataset=ds_name))
+
+    # ------------------------------------------------------------------
+    # AERIAL ELEPHANT
+    # ------------------------------------------------------------------
+    _print_class_summary(index, "aerial_elephant", apply_policy=False, limit=5)
+    print("\n=== Aerial elephant: load_dataset('aerial_elephant') ===")
+    ds_ae = index.load_dataset(
+        "aerial_elephant",
+        split="train",
+        load_images=False,
+        min_total_count=1,
+        on_missing_split="warn",
+    )
+    _peek_image_dataset(ds_ae, "Aerial elephant image-centric peek")
+
+    # Also test class-centric view (should be exactly one class)
+    ae_classes = index.get_classes(datasets=["aerial_elephant"], apply_policy=False)
+    if ae_classes:
+        ae_ck = ae_classes[0]["class_key"]
+        print(f"\n=== Aerial elephant: load_class({ae_ck}) ===")
+        ds_ae_class = index.load_class(
+            ae_ck,
+            split="train",
+            load_images=False,
+            min_count=1,
+            on_missing_split="warn",
+        )
+        print("  class-centric length:", len(ds_ae_class))
+        if len(ds_ae_class) > 0:
+            img, tgt = ds_ae_class[0]
+            print("  sample image:", img)
+            print("  class count in image:", tgt["count"])
+            print("  target instances: ", tgt["instances"])
 
     # ------------------------------------------------------------------
     # DOTA (v1.5)
@@ -231,37 +264,27 @@ def main():
             print("  class count in image:", tgt["count"])
 
     # ------------------------------------------------------------------
-    # AERIAL ELEPHANT
+    # KENYAN WILDLIFE
     # ------------------------------------------------------------------
-    _print_class_summary(index, "aerial_elephant", apply_policy=False, limit=5)
-    print("\n=== Aerial elephant: load_dataset('aerial_elephant') ===")
-    ds_ae = index.load_dataset(
-        "aerial_elephant",
-        split="train",
+    _print_class_summary(index, "kenyan_wildlife", apply_policy=False, limit=10)
+    print("\n=== Kenyan wildlife: load_dataset('kenyan_wildlife') ===")
+    ds_kw = index.load_dataset(
+        "kenyan_wildlife",
+        # splits={"train", "test"},
         load_images=False,
-        min_total_count=1,
+        min_total_count=1,  # drop empty images
+        max_total_count=500,  # sanity cap
         on_missing_split="warn",
     )
-    _peek_image_dataset(ds_ae, "Aerial elephant image-centric peek")
+    _peek_image_dataset(ds_kw, "Kenyan wildlife image-centric peek")
 
-    # Also test class-centric view (should be exactly one class)
-    ae_classes = index.get_classes(datasets=["aerial_elephant"], apply_policy=False)
-    if ae_classes:
-        ae_ck = ae_classes[0]["class_key"]
-        print(f"\n=== Aerial elephant: load_class({ae_ck}) ===")
-        ds_ae_class = index.load_class(
-            ae_ck,
-            split="train",
-            load_images=False,
-            min_count=1,
-            on_missing_split="warn",
-        )
-        print("  class-centric length:", len(ds_ae_class))
-        if len(ds_ae_class) > 0:
-            img, tgt = ds_ae_class[0]
-            print("  sample image:", img)
-            print("  class count in image:", tgt["count"])
-            print("  target instances: ", tgt["instances"])
+    print("\n=== Kenyan wildlife: per-class totals (image-centric) ===")
+    totals_kw = {}
+    for _, tgt in ds_kw:
+        for ck, cnt in tgt.get("counts", {}).items():
+            totals_kw[ck] = totals_kw.get(ck, 0) + cnt
+    for ck in sorted(totals_kw.keys()):
+        print(f"  {ck}: total_instances={totals_kw[ck]}")
 
     # ------------------------------------------------------------------
     # MALARIA
@@ -295,29 +318,6 @@ def main():
             on_missing_split="warn",
         )
         _peek_image_dataset(ds_mal, "Malaria image-centric peek")
-
-    # ------------------------------------------------------------------
-    # KENYAN WILDLIFE
-    # ------------------------------------------------------------------
-    _print_class_summary(index, "kenyan_wildlife", apply_policy=False, limit=10)
-    print("\n=== Kenyan wildlife: load_dataset('kenyan_wildlife') ===")
-    ds_kw = index.load_dataset(
-        "kenyan_wildlife",
-        # splits={"train", "test"},
-        load_images=False,
-        min_total_count=1,  # drop empty images
-        max_total_count=500,  # sanity cap
-        on_missing_split="warn",
-    )
-    _peek_image_dataset(ds_kw, "Kenyan wildlife image-centric peek")
-
-    print("\n=== Kenyan wildlife: per-class totals (image-centric) ===")
-    totals_kw = {}
-    for _, tgt in ds_kw:
-        for ck, cnt in tgt.get("counts", {}).items():
-            totals_kw[ck] = totals_kw.get(ck, 0) + cnt
-    for ck in sorted(totals_kw.keys()):
-        print(f"  {ck}: total_instances={totals_kw[ck]}")
 
     # ------------------------------------------------------------------
     # PENGUIN

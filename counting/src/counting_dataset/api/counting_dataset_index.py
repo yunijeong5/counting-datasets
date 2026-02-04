@@ -256,7 +256,7 @@ class CountingDatasetIndex:
                 }
             )
             c2 = dict(c)
-            c2["ann_types"] = all_types  # keep existing field if you already had it
+            c2["ann_types"] = all_types
             c2["instance_ann_types"] = instance_types
             c2["aux_ann_types"] = aux_types
             c2["ann_types_by_role"] = role_map

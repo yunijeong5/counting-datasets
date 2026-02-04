@@ -33,7 +33,7 @@ class SourceType(str, Enum):
 
 
 # Dataset-scoped class keys; primary class identity.
-# Example: "FSC147_384/bird", "dota_v15/plane", "malaria/cell".
+# Example: "fsc147/bird", "dota/plane", "malaria/red_blood_cell".
 ClassKey = str
 
 # Global, stable, deterministic image id. hash(dataset + original_relpath).
@@ -95,7 +95,7 @@ Geometry = Union[Point, HBB, OBB, Polygon, MaskRef]
 
 @dataclass(frozen=True)
 class Provenance:
-    dataset: str  # e.g. "dota_v15"
+    dataset: str  # e.g. "dota"
     original_relpath: str  # relative to raw dataset root
     original_filename: str
     original_id: Optional[str] = None  # if dataset defines a stable id
@@ -111,7 +111,7 @@ class Provenance:
 
 @dataclass
 class ClassRecord:
-    class_key: ClassKey  # "{dataset}/{name}"
+    class_key: ClassKey  # "{dataset}/{slugified_class_name}"
     dataset: str  # duplicated for convenience
     name: str  # "bird", "elephant", "cell", ...
     # Optional: link dataset-specific taxonomy if needed later

@@ -12,12 +12,7 @@ from .schema import (
     AnnType,
     ClassKey,
     Geometry,
-    HBB,
     ImageId,
-    MaskRef,
-    OBB,
-    Point,
-    Polygon,
     SourceType,
 )
 
