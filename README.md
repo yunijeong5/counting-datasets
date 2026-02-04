@@ -29,8 +29,7 @@ The API currently integrates the following datasets:
 - Malaria Infected Human Blood Smears
 - Penguins (crowd-sourced)
 
-A detailed overview, including dataset statistics, licenses, and citations, is available in  
-👉 **[`datasets.md`](datasets.md)**
+A detailed overview, including dataset statistics, licenses, and citations, is available in  👉 **[`datasets.md`](datasets.md)**
 
 ---
 
@@ -54,7 +53,7 @@ Raw datasets are **not included** in the repository. See below for guidance.
 
 ## Installation
 
-This project uses a standard Python packaging layout.
+This project uses a standard Python packaging layout. To use the package, first clone the repository and install it with pip.
 
 ```bash
 git clone https://github.com/yunijeong5/counting-datasets.git
@@ -117,6 +116,21 @@ This produces a single SQLite database (`index.sqlite`) containing normalized im
 
 ### 3. Load datasets
 
+#### Dataset views
+
+The API exposes two complementary dataset views, depending on whether your workflow is image-oriented or class-oriented.
+
+| View              | Loader           | Iterates over                      | Best suited for                                                       |
+| ----------------- | ---------------- | ---------------------------------- | --------------------------------------------------------------------- |
+| **Image-centric** | `load_dataset()` | Images                             | Multi-class training, image-level statistics, dataset-wide filtering  |
+| **Class-centric** | `load_class()`   | Images containing a specific class | Class-specific counting, exemplar-based methods, per-class evaluation |
+
+Image-centric datasets return aggregated annotations across _all classes_ present in each image. Class-centric datasets restrict attention to _one semantic class_ and only return images where that class appears.
+
+Both views are backed by the same indexed data and share identical filtering semantics; choosing between them is purely a matter of how an experiment is structured.
+
+You can load **image-centric** datasets with `index.load_dataset()`:
+
 ```python
 from counting_dataset import CountingDatasetIndex
 
@@ -133,7 +147,7 @@ for img, target in dataset:
     break
 ```
 
-You can also load **class-centric** datasets:
+You can load **class-centric** datasets with `index.load_class()`:
 
 ```python
 cls_ds = index.load_class(
@@ -144,6 +158,8 @@ cls_ds = index.load_class(
 img, target = cls_ds[0]
 print(target["count"])
 ```
+
+See [design.md](./design.md#81-countingdatasetindex) for more details on the two dataset views.
 
 ## End-to-End Example
 

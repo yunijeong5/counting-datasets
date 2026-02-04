@@ -213,17 +213,25 @@ class IndexBuilder:
         """
         Copy src_db to out_root/index.sqlite atomically (best-effort).
         Works even when src and dst are on different filesystems.
+
+        Strategy:
+        - stream-copy to a temp file inside out_root
+        - flush + fsync the temp file (WRITE fd)
+        - os.replace(temp, final) for atomic swap
+        - fsync the directory entry (best-effort)
         """
         dst = self.index_path
         tmp_dst = dst.with_suffix(dst.suffix + ".tmp")
 
         self.out_root.mkdir(parents=True, exist_ok=True)
 
-        shutil.copy2(src_db, tmp_dst)
+        # Stream copy to ensure we can fsync the WRITE FD
+        import shutil, os
 
-        # fsync the copied file
-        with open(tmp_dst, "rb") as f:
-            os.fsync(f.fileno())
+        with open(src_db, "rb") as fsrc, open(tmp_dst, "wb") as fdst:
+            shutil.copyfileobj(fsrc, fdst, length=1024 * 1024)  # 1MB chunks
+            fdst.flush()
+            os.fsync(fdst.fileno())
 
         # Atomic replace
         os.replace(tmp_dst, dst)
