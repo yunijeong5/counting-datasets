@@ -332,8 +332,6 @@ def main():
     )
     _peek_image_dataset(ds_peng_all, "Penguin (no crowd pruning) peek")
 
-    # If you renamed reviewed_only -> crowd_reviewed_only, use that here.
-    # If not renamed yet, change arg name accordingly.
     ds_peng_reviewed = index.load_dataset(
         "penguin",
         # split="train",
