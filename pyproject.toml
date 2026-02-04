@@ -9,30 +9,18 @@ description = "Unified API and indexing tools for multiple object-counting datas
 readme = "README.md"
 requires-python = ">=3.10"
 license = { text = "MIT" }
-authors = [
-  { name = "Seoyun (Yuni) Jeong" },
-]
+authors = [{ name = "Seoyun (Yuni) Jeong" }]
 keywords = ["computer-vision", "counting", "datasets", "annotations", "coco"]
 classifiers = [
   "Programming Language :: Python :: 3",
   "License :: OSI Approved :: MIT License",
   "Operating System :: OS Independent",
 ]
-dependencies = [
-  "numpy>=1.23",
-  "pillow>=9.0",
-  "tqdm>=4.0",
-]
+dependencies = ["numpy>=1.23", "pillow>=9.0", "tqdm>=4.0", "natsort>=8.4.0"]
 
 [project.optional-dependencies]
-dev = [
-  "pytest>=7.0",
-  "ruff>=0.4",
-  "mypy>=1.5",
-]
-torch = [
-  "torch>=2.0",
-]
+dev = ["pytest>=7.0", "ruff>=0.4", "mypy>=1.5"]
+torch = ["torch>=2.0"]
 
 # Optional: If you later add a CLI at counting/src/counting_dataset/cli/main.py
 # (with a main() function), you can enable this and users will get a
