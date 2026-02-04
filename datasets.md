@@ -39,7 +39,7 @@ This dataset is designed for large-scale wildlife counting from aerial imagery. 
 
 ### ✈️ DOTA v1.5
 
-DOTA is a dense, large-scale detection dataset featuring extreme object counts, heavy class imbalance, and frequent multi-class co-occurrence. In this API, OBBs are treated as canonical counting instances, with HBBs stored as auxiliary alternative geometry. 
+DOTA is a dense, large-scale detection dataset featuring extreme object counts, heavy class imbalance, and frequent multi-class co-occurrence. In this API, OBBs are treated as canonical counting instances, with HBBs stored as auxiliary alternative geometry. We only consider the train and validation sets of DOTA v1.5 since only their annotations are published by the authors; the test set's annotations are hidden.
 
 * **Domain:** Aerial urban scenes
 * **Images:** 1,869
@@ -91,7 +91,7 @@ This dataset features dense object distributions and significant class imbalance
 * **Classes:** 7 cell types
 * **Image resolution:** ~1,600 × 1,200 to ~1,900 × 1,400 pixels
 * **Objects per image:** Mean ~65, Max 223
-* ***License:** Creative Commons Attribution-NonCommercial-ShareAlike 3.0
+* **License:** Creative Commons Attribution-NonCommercial-ShareAlike 3.0
 
 **Reference:** Image set BBBC041v1 from the Broad Bioimage Benchmark Collection [[article]](https://www.nature.com/articles/nmeth.2083) [[download dataset]](https://bbbc.broadinstitute.org/BBBC041)
 
@@ -106,7 +106,7 @@ Only a small subset of images contains annotations; the remainder are unreviewed
 * **Classes:** 1 (penguin)
 * **Image resolution:** ~1,900 × 1,000 to ~2,000 × 1,500 pixels
 * **Objects per image (annotated subset):** Mean ~18, Max 213
-* ***License:** CC BY 4.0
+* **License:** CC BY 4.0
 
 **Reference:** C. Arteta, V. Lempitsky, A. Zisserman. Counting in the Wild, European Conference on Computer Vision, 2016 [[pdf]](https://www.robots.ox.ac.uk/~vgg/publications/2016/Arteta16/arteta16.pdf) [[download dataset]](https://www.robots.ox.ac.uk/~vgg/data/penguins/#)
 
