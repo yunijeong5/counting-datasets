@@ -55,7 +55,7 @@ Represents a dataset-scoped semantic class.
 Key fields:
 
 - `class_key`: a stable identifier of the form `{dataset}/{slugified_name}`
-  - Example: `fsc147/bird`, `dota/plane`, `penguin/penguin`
+  - Example: `fsc147/bird`, `malaria/red_blood_cell`, `penguin/penguin`
 - `name`: human-readable class label; original class name that is not necessarily slugified
 - `meta`: optional dataset-specific taxonomy or metadata
 
