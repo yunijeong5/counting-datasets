@@ -34,7 +34,7 @@ This dataset is designed for large-scale wildlife counting from aerial imagery. 
 * **Objects per image:** Mean ~7.5, Max 78
 * **License:** CC0 (Public Domain)
 
-**Reference:** Naudé, Johannes J. and Deon Joubert. “The Aerial Elephant Dataset: A New Public Benchmark for Aerial Object Detection.” CVPR Workshops (2019). [[pdf]](https://openaccess.thecvf.com/content_CVPRW_2019/papers/DOAI/Naude_The_Aerial_Elephant_Dataset_A_New_Public_Benchmark_for_Aerial_CVPRW_2019_paper.pdf) [[dataset download]](https://www.kaggle.com/datasets/davidrpugh/aerial-elephant-dataset)
+**Reference:** Naudé, Johannes J. and Deon Joubert. “The Aerial Elephant Dataset: A New Public Benchmark for Aerial Object Detection.” CVPR Workshops (2019). [[pdf]](https://openaccess.thecvf.com/content_CVPRW_2019/papers/DOAI/Naude_The_Aerial_Elephant_Dataset_A_New_Public_Benchmark_for_Aerial_CVPRW_2019_paper.pdf) [[download dataset]](https://www.kaggle.com/datasets/davidrpugh/aerial-elephant-dataset)
 
 
 ### ✈️ DOTA v1.5
@@ -49,7 +49,7 @@ DOTA is a dense, large-scale detection dataset featuring extreme object counts, 
 * **Objects per image:** Mean ~150, Max >10,000
 * **License:** Apache License 2.0
 
-**Reference:** J. Ding, N. Xue, Y. Long, G. -S. Xia and Q. Lu, "Learning RoI Transformer for Oriented Object Detection in Aerial Images," 2019 IEEE/CVF Conference on Computer Vision and Pattern Recognition (CVPR), Long Beach, CA, USA, 2019, pp. 2844-2853, doi: 10.1109/CVPR.2019.00296. [[pdf]](https://ieeexplore.ieee.org/stamp/stamp.jsp?tp=&arnumber=8953881) [[dataset download]](https://captain-whu.github.io/DOTA/dataset.html)
+**Reference:** J. Ding, N. Xue, Y. Long, G. -S. Xia and Q. Lu, "Learning RoI Transformer for Oriented Object Detection in Aerial Images," 2019 IEEE/CVF Conference on Computer Vision and Pattern Recognition (CVPR), Long Beach, CA, USA, 2019, pp. 2844-2853, doi: 10.1109/CVPR.2019.00296. [[pdf]](https://ieeexplore.ieee.org/stamp/stamp.jsp?tp=&arnumber=8953881) [[download dataset]](https://captain-whu.github.io/DOTA/dataset.html)
 
 
 ### 🖥️ FSC-147
@@ -64,7 +64,7 @@ Each image in FSC-147 is associated with exactly one class, even if other object
 * **Objects per image:** Mean ~56, Max 3,701
 * **License:** MIT
 
-**Reference:** Viresh Ranjan, Udbhav Sharma, Thu Nguyen and Minh Hoai. "Learning To Count Everything", Proceedings of the IEEE/CVF Conference on Computer Vision and Pattern Recognition (CVPR), 2021. [[pdf]](https://openaccess.thecvf.com/content/CVPR2021/papers/Ranjan_Learning_To_Count_Everything_CVPR_2021_paper.pdf) [[dataset download]](https://github.com/cvlab-stonybrook/LearningToCountEverything/tree/master)
+**Reference:** Viresh Ranjan, Udbhav Sharma, Thu Nguyen and Minh Hoai. "Learning To Count Everything", Proceedings of the IEEE/CVF Conference on Computer Vision and Pattern Recognition (CVPR), 2021. [[pdf]](https://openaccess.thecvf.com/content/CVPR2021/papers/Ranjan_Learning_To_Count_Everything_CVPR_2021_paper.pdf) [[download dataset]](https://github.com/cvlab-stonybrook/LearningToCountEverything/tree/master)
 
 
 ### 🦒 Kenyan Wildlife Aerial Survey
@@ -79,7 +79,7 @@ This dataset is provided in COCO format and contains multi-class aerial scenes o
 * **Objects per image:** Mean ~7.7, Max 108
 * **License:** CC0 (Public Domain)
 
-**Reference:** Eikelboom JAJ, Wind J, van de Ven E, et al. Improving the precision and accuracy of animal population estimates with aerial image object detection. Methods Ecol Evol. 2019; 10: 1875–1887. https://doi.org/10.1111/2041-210X.13277 [[pdf]](https://besjournals.onlinelibrary.wiley.com/doi/epdf/10.1111/2041-210X.13277) [[dataset download]](https://www.kaggle.com/datasets/davidrpugh/kenyan-wildlife-aerial-survey)
+**Reference:** Eikelboom JAJ, Wind J, van de Ven E, et al. Improving the precision and accuracy of animal population estimates with aerial image object detection. Methods Ecol Evol. 2019; 10: 1875–1887. https://doi.org/10.1111/2041-210X.13277 [[pdf]](https://besjournals.onlinelibrary.wiley.com/doi/epdf/10.1111/2041-210X.13277) [[download dataset]](https://www.kaggle.com/datasets/davidrpugh/kenyan-wildlife-aerial-survey)
 
 
 ### 🦠 Malaria Infected Human Blood Smears
@@ -93,7 +93,7 @@ This dataset features dense object distributions and significant class imbalance
 * **Objects per image:** Mean ~65, Max 223
 * ***License:** Creative Commons Attribution-NonCommercial-ShareAlike 3.0
 
-**Reference:** Image set BBBC041v1 from the Broad Bioimage Benchmark Collection [[article]](https://www.nature.com/articles/nmeth.2083) [[dataset download]](https://bbbc.broadinstitute.org/BBBC041)
+**Reference:** Image set BBBC041v1 from the Broad Bioimage Benchmark Collection [[article]](https://www.nature.com/articles/nmeth.2083) [[download dataset]](https://bbbc.broadinstitute.org/BBBC041)
 
 
 ### 🐧 Penguins
