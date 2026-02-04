@@ -241,29 +241,45 @@ Filters are applied at _query time_, not adapter time. This ensures that the ind
 
 ## 8. User-Facing APIs
 
+The user-facing API is designed around a **single indexed representation** of all datasets, exposed through lightweight dataset views tailored to different experimental needs.
+
+At the top level, users interact with a `CountingDatasetIndex`, which is responsible for discovery, filtering, and dataset construction.
+
 ### 8.1 CountingDatasetIndex
 
-`CountingDatasetIndex` is the main entry point for users.
+`CountingDatasetIndex` is the primary entry point into the system.
 
-It provides dataset and class discovery, applies filter policies, and constructs iterable dataset objects. Typical usage looks like:
+It is resposible for identifying which datasets, splits, and classes are available, and applying `FilterPolicy` constraints consistently across datasets. It also instantiates dataset views, either image-centric or class-centric depending on use case.
+
+A typical workflow looks like:
 
 ```python
 index = CountingDatasetIndex(root="counting/data", policy=policy)
-classes = index.get_classes(datasets=["dota"])
-dataset = index.load_class(classes[0], split="train")
+classes = index.get_classes(datasets=["dota", "fsc147"])
+dataset = index.load_class(classes[0]["class_key"], split="train")
 ```
 
 Key methods include:
 
-- `available_datasets()`: list indexed datasets
-- `available_splits()`: discover splits (globally or per dataset)
-- `get_classes()`: retrieve class metadata
-- `load_dataset()`: image-centric dataset (loads `CountingImageDataset`)
-- `load_class()`: class-centric dataset (loads `CountingClassDataest`)
+* `available_datasets()`: list all indexed datasets
+* `available_splits()`: discover splits globally or per dataset
+* `get_classes()`: retrieve class metadata and summary statistics
+* `load_dataset()`: construct an image-centric dataset (`CountingImageDataset`)
+* `load_class()`: construct a class-centric dataset (`CountingClassDataset`)
+
+Importantly, `CountingDatasetIndex` itself does **not** load images or annotations eagerly. It only issues SQL queries and constructs iterable dataset objects.
 
 ### 8.2 CountingImageDataset (Image-Centric)
 
-An image-centric view that iterates over images. This view is well-suited for multi-class training, per-image statistics, and image-level filtering.
+`CountingImageDataset` provides an **image-centric view** of the indexed data.
+
+Iteration is performed over images, and each sample aggregates all relevant annotation information for that image across classes.
+
+This view is particularly well suited for:
+
+* multi-class counting or detection models,
+* per-image statistics (e.g., total count, class co-occurrence),
+* image-level filtering (e.g., minimum total count, review status).
 
 Example usage:
 
@@ -272,12 +288,11 @@ ds = index.load_dataset("dota", split="train")
 img, target = ds[0]
 ```
 
-Where `target` may look like:
+The returned `target` dictionary summarizes all annotations associated with the image:
 
 ```python
 {
   "image_id": "img_632c96ac63a0071f9de957e6243c4d9c",
-  "dataset": "dota",
   "total_count": 18,
   "counts": {
     "dota/harbor": 3,
@@ -289,17 +304,26 @@ Where `target` may look like:
   },
   "aux": {
     "hbb": {
-        "dota/harbor": List[InstanceAnnotationRecord],
-        "dota/ship": List[InstanceAnnotationRecord]
-    },
+      "dota/harbor": List[InstanceAnnotationRecord],
+      "dota/ship": List[InstanceAnnotationRecord]
+    }
   },
   "review_status": "reviewed"
 }
 ```
+In this view, multiple classes may be present in a single sample. Only annotations with `role="instance"` contribute to counts, and auxiliary annotations (e.g., exemplar boxes or alternative geometries) are grouped under `aux` by role.
 
 ### 8.3 CountingClassDataset (Class-Centric)
 
-A class-centric view that iterates over images containing a specific class. This view is ideal for class-specific counting, exemplar-based methods, and per-class evaluation.
+`CountingClassDataset` provides a **class-centric view** of the data.
+
+Iteration is performed over images *conditioned on a single semantic class*. Only images containing at least one instance of the specified class are included.
+
+This view is ideal for:
+
+* class-specific counting tasks,
+* exemplar-based or prompt-based methods,
+* per-class evaluation and error analysis.
 
 Example usage:
 
@@ -308,7 +332,7 @@ ds = index.load_class("dota/harbor", split="train")
 img, target = ds[0]
 ```
 
-Where `target` may look like:
+The returned `target` focuses exclusively on the selected class:
 
 ```python
 {
@@ -317,11 +341,13 @@ Where `target` may look like:
   "count": 3,
   "instances": List[InstanceAnnotationRecord],
   "aux": {
-    "hbb": List[InstanceAnnotationRecord],
+    "hbb": List[InstanceAnnotationRecord]
   },
   "review_status": "reviewed"
 }
 ```
+
+In this view, exactly one semantic class is represented per dataset instance. The counts and instances refer **only** to the requested class, and auxiliary annotations are restricted to alternative annotations for that class.
 
 ## 9. Ordering and Determinism
 
