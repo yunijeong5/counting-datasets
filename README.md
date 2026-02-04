@@ -31,8 +31,6 @@ The API currently integrates the following datasets:
 
 A detailed overview, including dataset statistics, licenses, and citations, is available in  👉 **[`datasets.md`](datasets.md)**
 
----
-
 ## Project Structure
 
 ```
@@ -73,8 +71,6 @@ Download raw datasets into the `raw/` directory using the the following expected
 
 Dataset-specific directory structures are also documented in the adapters and in `datasets.md`.
 
-
----
 
 ### 2. Build the index
 
