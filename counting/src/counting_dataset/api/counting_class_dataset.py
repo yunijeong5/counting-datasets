@@ -33,6 +33,8 @@ class CountingClassDataset:
         # sample-level pruning for this class:
         min_count: Optional[int] = None,
         max_count: Optional[int] = None,
+        # metadata filters (JSON_EXTRACT on images.meta_json):
+        meta_filter: Optional[Dict[str, Any]] = None,
         # yield order:
         natural_sort: Optional[bool] = False,
     ):
@@ -43,6 +45,7 @@ class CountingClassDataset:
         self.target_format = target_format
         self.min_count = min_count
         self.max_count = max_count
+        self.meta_filter = meta_filter
         self.natural_sort = natural_sort
 
         self._image_rows = self._fetch_image_rows()
@@ -79,6 +82,11 @@ class CountingClassDataset:
         if self.max_count is not None:
             sql += " AND icc.count <= ?"
             params.append(int(self.max_count))
+
+        if self.meta_filter:
+            for key in sorted(self.meta_filter):
+                sql += f" AND JSON_EXTRACT(i.meta_json, '$.{key}') = ?"
+                params.append(str(self.meta_filter[key]))
 
         sql += " ORDER BY i.path"
 

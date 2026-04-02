@@ -39,6 +39,8 @@ class CountingImageDataset:
         min_annotators: Optional[int] = None,
         max_annotators: Optional[int] = None,
         min_point_votes: Optional[int] = None,
+        # metadata filters (JSON_EXTRACT on images.meta_json):
+        meta_filter: Optional[Dict[str, Any]] = None,
         # yield order:
         natural_sort: Optional[bool] = False,
     ):
@@ -53,6 +55,7 @@ class CountingImageDataset:
         self.min_annotators = min_annotators
         self.max_annotators = max_annotators
         self.min_point_votes = min_point_votes
+        self.meta_filter = meta_filter
         self.natural_sort = natural_sort
 
         self._image_rows = self._fetch_image_rows()
@@ -107,6 +110,11 @@ class CountingImageDataset:
         if self.min_point_votes is not None:
             sql += " AND COALESCE(irs.num_point_votes, 0) >= ?"
             params.append(int(self.min_point_votes))
+
+        if self.meta_filter:
+            for key in sorted(self.meta_filter):
+                sql += f" AND JSON_EXTRACT(i.meta_json, '$.{key}') = ?"
+                params.append(str(self.meta_filter[key]))
 
         sql += " ORDER BY i.path"
 

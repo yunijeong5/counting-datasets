@@ -277,6 +277,7 @@ class CountingDatasetIndex:
         ignore_policy: bool = False,
         min_count: Optional[int] = None,
         max_count: Optional[int] = None,
+        meta_filter: Optional[Dict[str, Any]] = None,
         on_missing_split: str = "empty",
         natural_sort: bool = False,
     ) -> CountingClassDataset:
@@ -388,6 +389,7 @@ class CountingDatasetIndex:
             target_format=target_format,
             min_count=min_count,
             max_count=max_count,
+            meta_filter=meta_filter,
             natural_sort=natural_sort,
         )
 
@@ -404,6 +406,7 @@ class CountingDatasetIndex:
         min_annotators: Optional[int] = None,
         max_annotators: Optional[int] = None,
         min_point_votes: Optional[int] = None,
+        meta_filter: Optional[Dict[str, Any]] = None,
         load_images: bool = True,
         ignore_policy: bool = False,
         on_missing_split: str = "empty",
@@ -547,5 +550,6 @@ class CountingDatasetIndex:
             min_annotators=min_annotators,
             max_annotators=max_annotators,
             min_point_votes=min_point_votes,
+            meta_filter=meta_filter,
             natural_sort=natural_sort,
         )
