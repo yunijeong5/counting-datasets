@@ -7,6 +7,7 @@ from counting_dataset.adapters.penguin import PenguinAdapter
 from counting_dataset.adapters.aerial_elephant import AerialElephantAdapter
 from counting_dataset.adapters.fsc147 import FSC147Adapter
 from counting_dataset.adapters.dota import DOTAAdapter
+from counting_dataset.adapters.birds import BirdsAdapter
 
 from counting_dataset import CountingDatasetIndex
 from counting_dataset.index.policy import FilterPolicy
@@ -56,7 +57,7 @@ def _peek_image_dataset(ds, title: str, n: int = 2):
 
 def main():
     index_dest = Path("counting/data")
-    rebuild_index = False
+    rebuild_index = True
 
     # ------------------------------------------------------------------
     # Build Index
@@ -71,6 +72,7 @@ def main():
                 AerialElephantAdapter(),
                 FSC147Adapter(),
                 DOTAAdapter(),
+                BirdsAdapter(),
             ],
             overwrite=True,
             show_progress=True,
@@ -98,6 +100,8 @@ def main():
     for ds_name in ds_list:
         print(f"\n--- Available splits ({ds_name}) ---")
         print(index.available_splits(dataset=ds_name))
+
+    exit()
 
     # ------------------------------------------------------------------
     # AERIAL ELEPHANT
