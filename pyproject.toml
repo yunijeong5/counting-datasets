@@ -44,6 +44,9 @@ counting_dataset = ["py.typed"]
 [tool.pytest.ini_options]
 testpaths = ["counting/tests"]
 addopts = "-q"
+markers = [
+  "smoke: end-to-end smoke tests that require raw data to be present",
+]
 
 [tool.ruff]
 line-length = 100
