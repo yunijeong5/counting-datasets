@@ -139,6 +139,7 @@ dataset = index.load_dataset(
 )
 
 for img, target in dataset:
+    print(target["width"], target["height"])  # image dimensions
     print(target["counts"])
     break
 ```

@@ -128,14 +128,19 @@ class CountingImageDataset:
             img = path
 
         target = self._build_target(
-            image_id=image_id, total_count=int(row["total_count"])
+            image_id=image_id,
+            total_count=int(row["total_count"]),
+            width=row["width"],
+            height=row["height"],
         )
         target["review_status"] = row["review_status"]
         target["num_annotators"] = int(row["num_annotators"])
         target["num_point_votes"] = int(row["num_point_votes"])
         return img, target
 
-    def _build_target(self, *, image_id: str, total_count: int) -> Dict[str, Any]:
+    def _build_target(
+        self, *, image_id: str, total_count: int, width: Optional[int], height: Optional[int]
+    ) -> Dict[str, Any]:
         """
         Returns:
           - counts: {class_key: count}
@@ -148,6 +153,8 @@ class CountingImageDataset:
         return {
             "image_id": image_id,
             "dataset": self.dataset,
+            "width": width,
+            "height": height,
             "total_count": total_count,
             "counts": counts,
             "instances": instances,  # role == "instance"

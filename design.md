@@ -293,6 +293,9 @@ The returned `target` dictionary summarizes all annotations associated with the 
 ```python
 {
   "image_id": "img_632c96ac63a0071f9de957e6243c4d9c",
+  "dataset": "dota",
+  "width": 1024,
+  "height": 768,
   "total_count": 18,
   "counts": {
     "dota/harbor": 3,
@@ -308,7 +311,9 @@ The returned `target` dictionary summarizes all annotations associated with the 
       "dota/ship": List[InstanceAnnotationRecord]
     }
   },
-  "review_status": "reviewed"
+  "review_status": "reviewed",
+  "num_annotators": 0,
+  "num_point_votes": 0
 }
 ```
 In this view, multiple classes may be present in a single sample. Only annotations with `role="instance"` contribute to counts, and auxiliary annotations (e.g., exemplar boxes or alternative geometries) are grouped under `aux` by role.
@@ -338,12 +343,16 @@ The returned `target` focuses exclusively on the selected class:
 {
   "image_id": "img_632c96ac63a0071f9de957e6243c4d9c",
   "class_key": "dota/harbor",
+  "width": 1024,
+  "height": 768,
   "count": 3,
   "instances": List[InstanceAnnotationRecord],
   "aux": {
     "hbb": List[InstanceAnnotationRecord]
   },
-  "review_status": "reviewed"
+  "review_status": "reviewed",
+  "num_annotators": 0,
+  "num_point_votes": 0
 }
 ```
 

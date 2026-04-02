@@ -210,7 +210,7 @@ class CountingDatasetIndex:
         Ad-hoc filtering on top of (optional) global policy.
         """
         classes = self.list_classes(apply_policy=apply_policy)
-
+        ds_set = None
         available = set(self.available_datasets())
         if datasets is not None:
             ds_set = {ds.lower() for ds in datasets}

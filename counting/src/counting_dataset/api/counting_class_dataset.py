@@ -103,6 +103,8 @@ class CountingClassDataset:
         target = self._build_target(
             image_id=image_id,
             class_count=class_count,
+            width=row["width"],
+            height=row["height"],
             review_status=row["review_status"],
             num_annotators=int(row["num_annotators"]),
             num_point_votes=int(row["num_point_votes"]),
@@ -114,6 +116,8 @@ class CountingClassDataset:
         *,
         image_id: str,
         class_count: int,
+        width: Optional[int],
+        height: Optional[int],
         review_status: str,
         num_annotators: int,
         num_point_votes: int,
@@ -153,6 +157,8 @@ class CountingClassDataset:
         return {
             "image_id": image_id,
             "class_key": self.class_key,
+            "width": width,
+            "height": height,
             "count": class_count,
             "instances": instances,  # role == "instance" only
             "aux": aux,  # role != "instance", class-local view

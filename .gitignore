@@ -17,6 +17,7 @@ raw/
 raw_compressed/
 counting/data*/
 dev_no_export/
+CLAUDE.md
 
 # SQLite temp / WAL files
 *.sqlite
