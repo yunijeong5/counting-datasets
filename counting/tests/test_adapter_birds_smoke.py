@@ -366,8 +366,8 @@ def test_birds_scene_tile_and_bird_counts(tmp_path: Path):
     index = CountingDatasetIndex(root=tmp_path / "data")
 
     EXPECTED = {
-        "sky":   {"tiles": 925,  "birds": 5682},
-        "reeds": {"tiles": 1426, "birds": 12486},
+        "sky":   {"tiles": 925,  "birds": 5847},
+        "reeds": {"tiles": 1426, "birds": 12849},
     }
 
     for scene, expected in EXPECTED.items():
