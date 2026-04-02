@@ -7,6 +7,7 @@ _CANON = {
     "train": {"train", "training", "tr"},
     "val": {"val", "valid", "validation", "dev"},
     "test": {"test", "testing", "te"},
+    "unspecified": {"unspecified", "none"},
 }
 
 
