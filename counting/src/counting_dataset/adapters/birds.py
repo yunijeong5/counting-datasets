@@ -123,7 +123,7 @@ class BirdsAdapter(DatasetAdapter):
 
       - ``AnnType.POINT``  / ``role="instance"`` / ``source=ORIGINAL`` —
         the crowd-labeled ground truth; drives counting aggregates.
-      - ``AnnType.HBB``    / ``role="aux"``      / ``source=GENERATED`` —
+      - ``AnnType.HBB``    / ``role="hbb"``      / ``source=GENERATED`` —
         pseudo-bbox derived from Otsu thresholding (same method as
         ``detector_counting.py``).  Only emitted when scikit-image is
         installed.  Does **not** contribute to per-image bird counts.
@@ -335,7 +335,7 @@ class BirdsAdapter(DatasetAdapter):
                             class_key=class_key,
                             ann_type=AnnType.HBB,
                             geometry=hbb_geom,
-                            role="aux",
+                            role="hbb",
                             source=SourceType.GENERATED,
                             instance_index=inst_idx,
                             meta={

@@ -10,12 +10,12 @@ Adapter layer (no index):
   - exactly one class emitted: birds/bird
   - image records are well-formed (stable ids, positive dims, correct meta keys)
   - both annotation types (point, hbb) appear; points are role="instance",
-    hbb is role="aux"
+    hbb is role="hbb"
   - every annotation's image_id resolves to an image record
 
 Index layer (built into tmp_path):
   - images / classes / annotations / image_class_counts tables are populated
-  - image_total_counts matches bird point counts (hbb aux rows excluded)
+  - image_total_counts matches bird point counts (hbb rows excluded)
   - all image paths in the DB exist on disk
 
 API layer (CountingDatasetIndex):
@@ -23,7 +23,7 @@ API layer (CountingDatasetIndex):
   - meta_filter={"scene": "sky"} and meta_filter={"scene": "reeds"} partition
     the full set (sky + reeds == all)
   - target dict contains "counts", "instances", "aux" keys
-  - aux["aux"] contains hbb entries (when skimage available); CountingClassDataset
+  - aux["hbb"] contains hbb entries (when skimage available); CountingClassDataset
     uses {role: [ann, ...]} — no class_key nesting unlike CountingImageDataset
   - load_class("birds/bird") returns only annotated tiles (count >= 1)
 """
@@ -144,8 +144,8 @@ def test_birds_adapter_annotations():
         assert geom.x >= 0 and geom.y >= 0
 
     for ann in hbb_anns:
-        assert ann.role == "aux", (
-            f"HBB annotation should be role='aux', got {ann.role!r}"
+        assert ann.role == "hbb", (
+            f"HBB annotation should be role='hbb', got {ann.role!r}"
         )
         assert ann.source.value == "generated"
         assert ann.class_key == "birds/bird"
@@ -217,7 +217,7 @@ def test_birds_index_tables_populated(tmp_path: Path):
 
 @pytest.mark.smoke
 def test_birds_index_total_counts_reflect_points_only(tmp_path: Path):
-    """image_total_counts should equal per-image point count (hbb is aux, excluded)."""
+    """image_total_counts should equal per-image point count (hbb role excluded)."""
     _skip_if_missing()
     db_path = _build_index(tmp_path)
 
@@ -346,7 +346,7 @@ def test_birds_api_aux_hbb_present(tmp_path: Path):
     found_hbb = False
     for i in range(min(len(ds), 20)):
         _, target = ds[i]
-        hbb_list = target.get("aux", {}).get("aux", [])
+        hbb_list = target.get("aux", {}).get("hbb", [])
         if hbb_list:
             found_hbb = True
             for ann in hbb_list:
@@ -355,7 +355,7 @@ def test_birds_api_aux_hbb_present(tmp_path: Path):
                 assert g["w"] > 0 and g["h"] > 0
             break
 
-    assert found_hbb, "No hbb aux annotations found in first 20 annotated tiles"
+    assert found_hbb, "No hbb annotations found in first 20 annotated tiles"
 
 
 @pytest.mark.smoke
