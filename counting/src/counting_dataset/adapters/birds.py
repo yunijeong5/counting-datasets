@@ -212,6 +212,9 @@ class BirdsAdapter(DatasetAdapter):
                 data: Dict = json.load(f)
 
             for _key, value in self._sorted_entries(data):
+                # if not (value.get("regions") or []):
+                #     continue  # skip tiles with no labeled birds
+
                 filename = value["filename"]
                 tile_name = filename.split("/")[-1]
                 relpath = self._tile_relpath(src_img, batch, tile_name)
