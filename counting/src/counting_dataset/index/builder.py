@@ -307,6 +307,7 @@ class IndexBuilder:
                     self._compute_image_total_counts(conn)
                     self._compute_image_review_stats(conn)
                 conn.commit()
+                self._checkpoint_wal(conn)
             finally:
                 conn.close()
             return self.index_path
@@ -333,6 +334,7 @@ class IndexBuilder:
                     self._compute_image_total_counts(conn)
                     self._compute_image_review_stats(conn)
                 conn.commit()
+                self._checkpoint_wal(conn)
             finally:
                 conn.close()
 
@@ -519,6 +521,10 @@ class IndexBuilder:
             GROUP BY image_id
             """
         )
+
+    def _checkpoint_wal(self, conn: sqlite3.Connection) -> None:
+        """Fold WAL into the main DB file so readers don't need to replay it."""
+        conn.execute("PRAGMA wal_checkpoint(TRUNCATE);")
 
     def _compute_image_review_stats(self, conn: sqlite3.Connection) -> None:
         conn.execute("DELETE FROM image_review_stats;")

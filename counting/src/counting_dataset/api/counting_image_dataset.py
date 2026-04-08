@@ -12,6 +12,10 @@ from PIL import Image
 def _connect(db_path: Path) -> sqlite3.Connection:
     conn = sqlite3.connect(str(db_path))
     conn.row_factory = sqlite3.Row
+    # Read-performance tuning: 64 MB page cache, memory-mapped I/O, temp tables in RAM
+    conn.execute("PRAGMA cache_size=-65536;")
+    conn.execute("PRAGMA mmap_size=268435456;")
+    conn.execute("PRAGMA temp_store=MEMORY;")
     return conn
 
 
@@ -21,6 +25,11 @@ class CountingImageDataset:
     for ALL classes present (or optionally restricted to a subset of class_keys).
 
     Useful for multi-class experiments and per-image statistics.
+
+    preload_annotations (default True): fetch ALL annotation rows for the
+    selected images in one bulk query at construction time, then serve them
+    from an in-memory dict on every __getitem__.  This eliminates two SQLite
+    round-trips per sample (_fetch_counts + _fetch_instances_and_aux).
     """
 
     def __init__(
@@ -43,6 +52,8 @@ class CountingImageDataset:
         meta_filter: Optional[Dict[str, Any]] = None,
         # yield order:
         natural_sort: Optional[bool] = False,
+        # performance:
+        preload_annotations: bool = True,
     ):
         self.index_path = Path(index_path)
         self.dataset = dataset
@@ -57,12 +68,23 @@ class CountingImageDataset:
         self.min_point_votes = min_point_votes
         self.meta_filter = meta_filter
         self.natural_sort = natural_sort
+        self.preload_annotations = preload_annotations
 
         self._image_rows = self._fetch_image_rows()
         if self.natural_sort:
             self._image_rows = natsorted(
                 self._image_rows, key=lambda r: Path(r["path"]).name
             )
+
+        # Bulk-load annotations and counts for all images in one query each.
+        # _ann_cache: image_id -> (counts_dict, instances_dict, aux_dict)
+        self._ann_cache: Optional[Dict[str, Tuple[
+            Dict[str, int],
+            Dict[str, List[Dict[str, Any]]],
+            Dict[str, Dict[str, List[Dict[str, Any]]]],
+        ]]] = None
+        if self.preload_annotations and self._image_rows:
+            self._ann_cache = self._preload_all_annotations()
 
     def _fetch_image_rows(self) -> List[sqlite3.Row]:
         """
@@ -122,6 +144,79 @@ class CountingImageDataset:
             rows = conn.execute(sql, params).fetchall()
         return rows
 
+    def _preload_all_annotations(self) -> Dict[str, Tuple[
+        Dict[str, int],
+        Dict[str, List[Dict[str, Any]]],
+        Dict[str, Dict[str, List[Dict[str, Any]]]],
+    ]]:
+        """
+        Fetch all counts and annotations for the selected images in two bulk
+        queries, then assemble per-image caches.
+
+        Returns a dict: image_id -> (counts, instances, aux)
+          counts:    {class_key: count}
+          instances: {class_key: [ann, ...]}  for role == "instance"
+          aux:       {role: {class_key: [ann, ...]}}  for role != "instance"
+        """
+        image_ids = [r["image_id"] for r in self._image_rows]
+        ph = ",".join(["?"] * len(image_ids))
+
+        # --- counts ---
+        counts_sql = f"""
+        SELECT image_id, class_key, count
+        FROM image_class_counts
+        WHERE image_id IN ({ph})
+        """
+        with _connect(self.index_path) as conn:
+            count_rows = conn.execute(counts_sql, image_ids).fetchall()
+
+        counts_map: Dict[str, Dict[str, int]] = {iid: {} for iid in image_ids}
+        for r in count_rows:
+            ck = r["class_key"]
+            if self.class_keys is not None and ck not in self.class_keys:
+                continue
+            counts_map[r["image_id"]][ck] = int(r["count"])
+
+        # --- annotations ---
+        ann_sql = f"""
+        SELECT ann_id, image_id, class_key, ann_type, source, instance_index,
+               geometry_json, score, meta_json, role
+        FROM annotations
+        WHERE image_id IN ({ph})
+        ORDER BY image_id ASC, role ASC, class_key ASC, instance_index ASC, ann_id ASC
+        """
+        with _connect(self.index_path) as conn:
+            ann_rows = conn.execute(ann_sql, image_ids).fetchall()
+
+        instances_map: Dict[str, Dict[str, List[Dict[str, Any]]]] = {iid: {} for iid in image_ids}
+        aux_map: Dict[str, Dict[str, Dict[str, List[Dict[str, Any]]]]] = {iid: {} for iid in image_ids}
+
+        for r in ann_rows:
+            ck = r["class_key"]
+            if self.class_keys is not None and ck not in self.class_keys:
+                continue
+            iid = r["image_id"]
+            role = r["role"] or "instance"
+            ann = {
+                "ann_id": r["ann_id"],
+                "ann_type": r["ann_type"],
+                "source": r["source"],
+                "instance_index": r["instance_index"],
+                "geometry": json.loads(r["geometry_json"]),
+                "score": r["score"],
+                "meta": json.loads(r["meta_json"]),
+                "role": role,
+            }
+            if role == "instance":
+                instances_map[iid].setdefault(ck, []).append(ann)
+            else:
+                aux_map[iid].setdefault(role, {}).setdefault(ck, []).append(ann)
+
+        return {
+            iid: (counts_map[iid], instances_map[iid], aux_map[iid])
+            for iid in image_ids
+        }
+
     def __len__(self) -> int:
         return len(self._image_rows)
 
@@ -149,14 +244,11 @@ class CountingImageDataset:
     def _build_target(
         self, *, image_id: str, total_count: int, width: Optional[int], height: Optional[int]
     ) -> Dict[str, Any]:
-        """
-        Returns:
-          - counts: {class_key: count}
-          - instances: {class_key: [instance, ...]}
-        Optionally restricted to self.class_keys.
-        """
-        counts = self._fetch_counts(image_id)
-        instances, aux = self._fetch_instances_and_aux(image_id)
+        if self._ann_cache is not None:
+            counts, instances, aux = self._ann_cache[image_id]
+        else:
+            counts = self._fetch_counts(image_id)
+            instances, aux = self._fetch_instances_and_aux(image_id)
 
         return {
             "image_id": image_id,
@@ -175,10 +267,8 @@ class CountingImageDataset:
         FROM image_class_counts
         WHERE image_id = ?
         """
-        params: List[Any] = [image_id]
-
         with _connect(self.index_path) as conn:
-            rows = conn.execute(sql, params).fetchall()
+            rows = conn.execute(sql, [image_id]).fetchall()
 
         out: Dict[str, int] = {}
         for r in rows:
@@ -205,10 +295,8 @@ class CountingImageDataset:
         WHERE image_id = ?
         ORDER BY role ASC, class_key ASC, instance_index ASC, ann_id ASC
         """
-        params: List[Any] = [image_id]
-
         with _connect(self.index_path) as conn:
-            rows = conn.execute(sql, params).fetchall()
+            rows = conn.execute(sql, [image_id]).fetchall()
 
         instances: Dict[str, List[Dict[str, Any]]] = {}
         aux: Dict[str, Dict[str, List[Dict[str, Any]]]] = {}

@@ -60,12 +60,15 @@ CREATE TABLE IF NOT EXISTS annotations (
   FOREIGN KEY(class_key) REFERENCES classes(class_key) ON DELETE CASCADE
 );
 
-CREATE INDEX IF NOT EXISTS idx_ann_image  ON annotations(image_id);
-CREATE INDEX IF NOT EXISTS idx_ann_class  ON annotations(class_key);
-CREATE INDEX IF NOT EXISTS idx_ann_type   ON annotations(ann_type);
-CREATE INDEX IF NOT EXISTS idx_annotations_role ON annotations(role);
+CREATE INDEX IF NOT EXISTS idx_ann_image       ON annotations(image_id);
+CREATE INDEX IF NOT EXISTS idx_ann_class       ON annotations(class_key);
+CREATE INDEX IF NOT EXISTS idx_ann_type        ON annotations(ann_type);
+CREATE INDEX IF NOT EXISTS idx_annotations_role       ON annotations(role);
 CREATE INDEX IF NOT EXISTS idx_annotations_image_role ON annotations(image_id, role);
 CREATE INDEX IF NOT EXISTS idx_annotations_class_role ON annotations(class_key, role);
+-- Covers the hottest __getitem__ query in CountingClassDataset:
+-- WHERE image_id = ? AND class_key = ?
+CREATE INDEX IF NOT EXISTS idx_ann_image_class ON annotations(image_id, class_key);
 
 -- Derived aggregate: counts per (image, class)
 CREATE TABLE IF NOT EXISTS image_class_counts (

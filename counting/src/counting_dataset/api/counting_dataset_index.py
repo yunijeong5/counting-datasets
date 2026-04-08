@@ -280,6 +280,7 @@ class CountingDatasetIndex:
         meta_filter: Optional[Dict[str, Any]] = None,
         on_missing_split: str = "empty",
         natural_sort: bool = False,
+        preload_annotations: bool = True,
     ) -> CountingClassDataset:
         """
         Create a class-centric iterable dataset for a single `class_key`.
@@ -391,6 +392,7 @@ class CountingDatasetIndex:
             max_count=max_count,
             meta_filter=meta_filter,
             natural_sort=natural_sort,
+            preload_annotations=preload_annotations,
         )
 
     def load_dataset(
@@ -411,6 +413,7 @@ class CountingDatasetIndex:
         ignore_policy: bool = False,
         on_missing_split: str = "empty",
         natural_sort: bool = False,
+        preload_annotations: bool = True,
     ) -> CountingImageDataset:
         """
         Create an image-centric iterable dataset for an entire dataset (e.g., "malaria").
@@ -552,4 +555,5 @@ class CountingDatasetIndex:
             min_point_votes=min_point_votes,
             meta_filter=meta_filter,
             natural_sort=natural_sort,
+            preload_annotations=preload_annotations,
         )

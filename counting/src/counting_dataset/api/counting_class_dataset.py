@@ -13,6 +13,10 @@ from PIL import Image
 def _connect(db_path: Path) -> sqlite3.Connection:
     conn = sqlite3.connect(str(db_path))
     conn.row_factory = sqlite3.Row
+    # Read-performance tuning: 64 MB page cache, memory-mapped I/O, temp tables in RAM
+    conn.execute("PRAGMA cache_size=-65536;")
+    conn.execute("PRAGMA mmap_size=268435456;")
+    conn.execute("PRAGMA temp_store=MEMORY;")
     return conn
 
 
@@ -20,6 +24,13 @@ class CountingClassDataset:
     """
     Iterable dataset for a single class_key.
     Supports sample-level pruning based on per-image count of that class.
+
+    preload_annotations (default True): fetch ALL annotation rows for the
+    selected images in one bulk query at construction time, then serve them
+    from an in-memory dict on every __getitem__.  This eliminates one SQLite
+    round-trip per sample, which is the dominant cost when load_images=False.
+    Set to False only when memory is very tight (many thousands of images with
+    dense annotations).
     """
 
     def __init__(
@@ -37,6 +48,8 @@ class CountingClassDataset:
         meta_filter: Optional[Dict[str, Any]] = None,
         # yield order:
         natural_sort: Optional[bool] = False,
+        # performance:
+        preload_annotations: bool = True,
     ):
         self.index_path = Path(index_path)
         self.class_key = class_key
@@ -47,12 +60,19 @@ class CountingClassDataset:
         self.max_count = max_count
         self.meta_filter = meta_filter
         self.natural_sort = natural_sort
+        self.preload_annotations = preload_annotations
 
         self._image_rows = self._fetch_image_rows()
         if self.natural_sort:
             self._image_rows = natsorted(
                 self._image_rows, key=lambda r: Path(r["path"]).name
             )
+
+        # Bulk-load annotations for all images in one query.
+        # _ann_cache: image_id -> list of raw annotation rows (as dicts)
+        self._ann_cache: Optional[Dict[str, List[Dict[str, Any]]]] = None
+        if self.preload_annotations and self._image_rows:
+            self._ann_cache = self._preload_all_annotations()
 
     def _fetch_image_rows(self) -> List[sqlite3.Row]:
         sql = """
@@ -94,6 +114,28 @@ class CountingClassDataset:
             rows = conn.execute(sql, params).fetchall()
         return rows
 
+    def _preload_all_annotations(self) -> Dict[str, List[Dict[str, Any]]]:
+        """
+        Fetch all annotations for the selected images in a single query.
+        Returns a dict keyed by image_id.
+        """
+        image_ids = [r["image_id"] for r in self._image_rows]
+        ph = ",".join(["?"] * len(image_ids))
+        sql = f"""
+        SELECT ann_id, image_id, ann_type, source, instance_index,
+               geometry_json, score, meta_json, role
+        FROM annotations
+        WHERE image_id IN ({ph}) AND class_key = ?
+        ORDER BY image_id ASC, role ASC, instance_index ASC, ann_id ASC
+        """
+        with _connect(self.index_path) as conn:
+            rows = conn.execute(sql, image_ids + [self.class_key]).fetchall()
+
+        cache: Dict[str, List[Dict[str, Any]]] = {r["image_id"]: [] for r in self._image_rows}
+        for r in rows:
+            cache[r["image_id"]].append(dict(r))
+        return cache
+
     def __len__(self) -> int:
         return len(self._image_rows)
 
@@ -130,19 +172,22 @@ class CountingClassDataset:
         num_annotators: int,
         num_point_votes: int,
     ) -> Dict[str, Any]:
-        sql = """
-        SELECT ann_id, ann_type, source, instance_index, geometry_json, score, meta_json, role
-        FROM annotations
-        WHERE image_id = ? AND class_key = ?
-        ORDER BY role ASC, instance_index ASC, ann_id ASC
-        """
-        with _connect(self.index_path) as conn:
-            rows = conn.execute(sql, [image_id, self.class_key]).fetchall()
+        if self._ann_cache is not None:
+            raw_rows = self._ann_cache.get(image_id, [])
+        else:
+            sql = """
+            SELECT ann_id, ann_type, source, instance_index, geometry_json, score, meta_json, role
+            FROM annotations
+            WHERE image_id = ? AND class_key = ?
+            ORDER BY role ASC, instance_index ASC, ann_id ASC
+            """
+            with _connect(self.index_path) as conn:
+                raw_rows = [dict(r) for r in conn.execute(sql, [image_id, self.class_key]).fetchall()]
 
         instances: List[Dict[str, Any]] = []
         aux: Dict[str, List[Dict[str, Any]]] = {}
 
-        for r in rows:
+        for r in raw_rows:
             role = r["role"] or "instance"
             ann = {
                 "ann_id": r["ann_id"],
