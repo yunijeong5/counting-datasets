@@ -68,9 +68,9 @@ def main():
             [
                 MalariaAdapter(),
                 KenyanWildlifeAdapter(),
-                PenguinAdapter(),
-                AerialElephantAdapter(),
-                FSC147Adapter(),
+                # PenguinAdapter(),
+                # AerialElephantAdapter(),
+                # FSC147Adapter(),
                 DOTAAdapter(),
                 BirdsAdapter(),
             ],
