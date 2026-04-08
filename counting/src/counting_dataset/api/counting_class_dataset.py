@@ -13,9 +13,10 @@ from PIL import Image
 def _connect(db_path: Path) -> sqlite3.Connection:
     conn = sqlite3.connect(str(db_path))
     conn.row_factory = sqlite3.Row
-    # Read-performance tuning: 64 MB page cache, memory-mapped I/O, temp tables in RAM
+    # Per-connection read tuning (safe on NFS and local disks).
+    # cache_size: 64 MB in-process page cache.
+    # temp_store: keep SQLite's internal temp tables in RAM.
     conn.execute("PRAGMA cache_size=-65536;")
-    conn.execute("PRAGMA mmap_size=268435456;")
     conn.execute("PRAGMA temp_store=MEMORY;")
     return conn
 
@@ -28,9 +29,13 @@ class CountingClassDataset:
     preload_annotations (default True): fetch ALL annotation rows for the
     selected images in one bulk query at construction time, then serve them
     from an in-memory dict on every __getitem__.  This eliminates one SQLite
-    round-trip per sample, which is the dominant cost when load_images=False.
-    Set to False only when memory is very tight (many thousands of images with
-    dense annotations).
+    round-trip per sample — the dominant cost when load_images=False.
+
+    The bulk query uses a correlated subquery that mirrors the same filter
+    conditions as _fetch_image_rows, so it is safe regardless of dataset size
+    (no SQLite variable-count limit).
+
+    Set preload_annotations=False only when memory is extremely tight.
     """
 
     def __init__(
@@ -68,48 +73,63 @@ class CountingClassDataset:
                 self._image_rows, key=lambda r: Path(r["path"]).name
             )
 
-        # Bulk-load annotations for all images in one query.
-        # _ann_cache: image_id -> list of raw annotation rows (as dicts)
+        # _ann_cache: image_id -> list of raw annotation row dicts
         self._ann_cache: Optional[Dict[str, List[Dict[str, Any]]]] = None
         if self.preload_annotations and self._image_rows:
             self._ann_cache = self._preload_all_annotations()
 
+    # ------------------------------------------------------------------
+    # Image filter helpers shared by _fetch_image_rows and
+    # _preload_all_annotations (keeps the two in sync).
+    # ------------------------------------------------------------------
+
+    def _image_filter_sql_and_params(self) -> Tuple[str, List[Any]]:
+        """
+        Return (WHERE-clause fragment, params) that selects the images
+        belonging to this dataset object.
+
+        The fragment assumes the query already has:
+          FROM images i
+          JOIN image_class_counts icc ON icc.image_id = i.image_id
+        and starts with "icc.class_key = ?".
+        """
+        parts = ["icc.class_key = ?"]
+        params: List[Any] = [self.class_key]
+
+        if self.splits is not None:
+            ph = ",".join(["?"] * len(self.splits))
+            parts.append(f"i.split IN ({ph})")
+            params.extend(sorted(self.splits))
+
+        if self.min_count is not None:
+            parts.append("icc.count >= ?")
+            params.append(int(self.min_count))
+
+        if self.max_count is not None:
+            parts.append("icc.count <= ?")
+            params.append(int(self.max_count))
+
+        if self.meta_filter:
+            for key in sorted(self.meta_filter):
+                parts.append(f"JSON_EXTRACT(i.meta_json, '$.{key}') = ?")
+                params.append(str(self.meta_filter[key]))
+
+        return " AND ".join(parts), params
+
     def _fetch_image_rows(self) -> List[sqlite3.Row]:
-        sql = """
+        where, params = self._image_filter_sql_and_params()
+        sql = f"""
         SELECT i.image_id, i.path, i.width, i.height, i.split,
             icc.count AS class_count,
             COALESCE(irs.review_status, 'na') AS review_status,
             COALESCE(irs.num_annotators, 0) AS num_annotators,
             COALESCE(irs.num_point_votes, 0) AS num_point_votes
         FROM images i
-        JOIN image_class_counts icc
-        ON icc.image_id = i.image_id
-        LEFT JOIN image_review_stats irs
-        ON irs.image_id = i.image_id
-        WHERE icc.class_key = ?
+        JOIN image_class_counts icc ON icc.image_id = i.image_id
+        LEFT JOIN image_review_stats irs ON irs.image_id = i.image_id
+        WHERE {where}
+        ORDER BY i.path
         """
-        params: List[Any] = [self.class_key]
-
-        if self.splits is not None:
-            ph = ",".join(["?"] * len(self.splits))
-            sql += f" AND i.split IN ({ph})"
-            params.extend(sorted(self.splits))
-
-        if self.min_count is not None:
-            sql += " AND icc.count >= ?"
-            params.append(int(self.min_count))
-
-        if self.max_count is not None:
-            sql += " AND icc.count <= ?"
-            params.append(int(self.max_count))
-
-        if self.meta_filter:
-            for key in sorted(self.meta_filter):
-                sql += f" AND JSON_EXTRACT(i.meta_json, '$.{key}') = ?"
-                params.append(str(self.meta_filter[key]))
-
-        sql += " ORDER BY i.path"
-
         with _connect(self.index_path) as conn:
             rows = conn.execute(sql, params).fetchall()
         return rows
@@ -117,23 +137,37 @@ class CountingClassDataset:
     def _preload_all_annotations(self) -> Dict[str, List[Dict[str, Any]]]:
         """
         Fetch all annotations for the selected images in a single query.
-        Returns a dict keyed by image_id.
-        """
-        image_ids = [r["image_id"] for r in self._image_rows]
-        ph = ",".join(["?"] * len(image_ids))
-        sql = f"""
-        SELECT ann_id, image_id, ann_type, source, instance_index,
-               geometry_json, score, meta_json, role
-        FROM annotations
-        WHERE image_id IN ({ph}) AND class_key = ?
-        ORDER BY image_id ASC, role ASC, instance_index ASC, ann_id ASC
-        """
-        with _connect(self.index_path) as conn:
-            rows = conn.execute(sql, image_ids + [self.class_key]).fetchall()
 
-        cache: Dict[str, List[Dict[str, Any]]] = {r["image_id"]: [] for r in self._image_rows}
-        for r in rows:
-            cache[r["image_id"]].append(dict(r))
+        Uses a subquery to identify the relevant images — no IN(list) of IDs,
+        so there is no SQLite variable-count limit, and concurrent readers on
+        any filesystem are unaffected.
+
+        Returns: {image_id: [row_dict, ...]}
+        """
+        where, params = self._image_filter_sql_and_params()
+        sql = f"""
+        SELECT a.ann_id, a.image_id, a.ann_type, a.source, a.instance_index,
+               a.geometry_json, a.score, a.meta_json, a.role
+        FROM annotations a
+        WHERE a.class_key = ?
+          AND a.image_id IN (
+              SELECT i.image_id
+              FROM images i
+              JOIN image_class_counts icc ON icc.image_id = i.image_id
+              WHERE {where}
+          )
+        ORDER BY a.image_id ASC, a.role ASC, a.instance_index ASC, a.ann_id ASC
+        """
+        full_params = [self.class_key] + params
+
+        cache: Dict[str, List[Dict[str, Any]]] = {
+            r["image_id"]: [] for r in self._image_rows
+        }
+        with _connect(self.index_path) as conn:
+            for r in conn.execute(sql, full_params):
+                iid = r["image_id"]
+                if iid in cache:
+                    cache[iid].append(dict(r))
         return cache
 
     def __len__(self) -> int:
@@ -182,7 +216,7 @@ class CountingClassDataset:
             ORDER BY role ASC, instance_index ASC, ann_id ASC
             """
             with _connect(self.index_path) as conn:
-                raw_rows = [dict(r) for r in conn.execute(sql, [image_id, self.class_key]).fetchall()]
+                raw_rows = [dict(r) for r in conn.execute(sql, [image_id, self.class_key])]
 
         instances: List[Dict[str, Any]] = []
         aux: Dict[str, List[Dict[str, Any]]] = {}
