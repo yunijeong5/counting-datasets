@@ -13,7 +13,6 @@ from counting_dataset.core.schema import (
     HBB,
     ImageRecord,
     InstanceAnnotationRecord,
-    Provenance,
     SourceType,
     SplitType,
 )
@@ -41,18 +40,6 @@ class KenyanWildlifeAdapter(DatasetAdapter):
           test/
             _annotations.coco.json
             *.jpg
-
-    Strategy:
-      - Create one class per COCO category (excluding dummy categories):
-          class_key = "kenyan_wildlife/<slugified_category>"
-      - Map split directories:
-          train -> SplitType.TRAIN
-          valid -> SplitType.VAL
-          test  -> SplitType.TEST
-      - Emit one HBB instance annotation per COCO annotation
-        using bbox xywh directly.
-      - Preserve original COCO identifiers in annotation metadata
-        for traceability.
     """
 
     dataset = "kenyan_wildlife"
@@ -61,7 +48,6 @@ class KenyanWildlifeAdapter(DatasetAdapter):
         return ctx.raw_root / "kenyan-wildlife-aerial-survey"
 
     def _split_dirs(self) -> List[Tuple[str, SplitType]]:
-        # folder name -> canonical split
         return [
             ("train", SplitType.TRAIN),
             ("test", SplitType.TEST),
@@ -76,12 +62,6 @@ class KenyanWildlifeAdapter(DatasetAdapter):
         return data
 
     def _build_category_maps(self, coco: dict) -> Tuple[Dict[int, str], Dict[int, str]]:
-        """
-        Returns:
-          - cat_id -> class_key
-          - cat_id -> display_name
-        Ignores the top-level 'objects' category if present.
-        """
         id_to_key: Dict[int, str] = {}
         id_to_name: Dict[int, str] = {}
 
@@ -91,12 +71,7 @@ class KenyanWildlifeAdapter(DatasetAdapter):
             name = str(c.get("name", "")).strip()
             supercat = str(c.get("supercategory", "")).strip().lower()
 
-            # We treat dummy category like {"id":0,"name":"objects"} as not-a-class.
-            if name.strip().lower() == "objects" and supercat in (
-                "none",
-                "",
-                "objects",
-            ):
+            if name.strip().lower() == "objects" and supercat in ("none", "", "objects"):
                 continue
 
             slug = _slugify(name)
@@ -123,7 +98,6 @@ class KenyanWildlifeAdapter(DatasetAdapter):
                     class_key=ck,
                     dataset=self.dataset,
                     name=id_to_name[cid],
-                    meta={"coco_category_id": cid},
                 )
 
         for ck in sorted(seen.keys()):
@@ -131,14 +105,13 @@ class KenyanWildlifeAdapter(DatasetAdapter):
 
     def iter_images(self, ctx: AdapterContext) -> Iterable[ImageRecord]:
         root = self._dataset_root(ctx)
-        seen_relpaths: Set[str] = set()  # relpath
+        seen_relpaths: Set[str] = set()
 
         for split_dir, split_type in self._split_dirs():
             ann_path = root / "coco" / split_dir / "_annotations.coco.json"
             coco = self._load_coco(ann_path)
 
             images = coco.get("images", []) or []
-            # deterministic
             images_sorted = sorted(
                 images,
                 key=lambda im: (str(im.get("file_name", "")), int(im.get("id", -1))),
@@ -149,7 +122,6 @@ class KenyanWildlifeAdapter(DatasetAdapter):
                 width = int(im.get("width", 0))
                 height = int(im.get("height", 0))
 
-                # relpath relative to raw/kenyan-wildlife-aerial-survey
                 relpath = normalize_relpath(f"coco/{split_dir}/{file_name}")
                 if relpath in seen_relpaths:
                     continue
@@ -164,20 +136,10 @@ class KenyanWildlifeAdapter(DatasetAdapter):
                     width=width,
                     height=height,
                     split=split_type,
-                    provenance=Provenance(
-                        dataset=self.dataset,
-                        original_relpath=relpath,
-                        original_filename=Path(file_name).name,
-                        original_id=str(im.get("id")) if "id" in im else None,
-                        sha1=None,
-                        size_bytes=None,
-                    ),
-                    counts={},  # builder will fill from annotations
-                    meta={
-                        "date_captured": im.get("date_captured"),
-                        "extra": im.get("extra"),
-                        "coco_split_dir": split_dir,
-                    },
+                    dataset=self.dataset,
+                    original_relpath=relpath,
+                    original_filename=Path(file_name).name,
+                    original_id=str(im.get("id")) if "id" in im else None,
                 )
 
     def iter_annotations(
@@ -185,14 +147,12 @@ class KenyanWildlifeAdapter(DatasetAdapter):
     ) -> Iterable[InstanceAnnotationRecord]:
         root = self._dataset_root(ctx)
 
-        # We iterate split-by-split; each split has its own COCO file.
-        for split_dir, split_type in self._split_dirs():
+        for split_dir, _split_type in self._split_dirs():
             ann_path = root / "coco" / split_dir / "_annotations.coco.json"
             coco = self._load_coco(ann_path)
 
             id_to_key, _ = self._build_category_maps(coco)
 
-            # image_id mapping: coco image id -> relpath
             coco_imgid_to_relpath: Dict[int, str] = {}
             for im in coco.get("images", []) or []:
                 coco_imgid = int(im["id"])
@@ -201,7 +161,6 @@ class KenyanWildlifeAdapter(DatasetAdapter):
                 coco_imgid_to_relpath[coco_imgid] = relpath
 
             anns = coco.get("annotations", []) or []
-            # deterministic ordering: (image_id, category_id, ann_id)
             anns_sorted = sorted(
                 anns,
                 key=lambda a: (
@@ -211,14 +170,12 @@ class KenyanWildlifeAdapter(DatasetAdapter):
                 ),
             )
 
-            # instance_index per image (not per class) for guaranteed uniqueness
             per_image_counter: Dict[int, int] = {}
 
             for a in anns_sorted:
                 coco_imgid = int(a["image_id"])
                 coco_catid = int(a["category_id"])
 
-                # ignore dummy categories like "objects"
                 if coco_catid not in id_to_key:
                     continue
 
@@ -228,7 +185,8 @@ class KenyanWildlifeAdapter(DatasetAdapter):
                 bbox = a.get("bbox", None)
                 if bbox is None or len(bbox) != 4:
                     print(
-                        f"Invalid bounding box annotation format in image {relpath}. Expected four [x, y, w, h] values; got {len(bbox)} values."
+                        f"Invalid bounding box annotation format in image {relpath}. "
+                        f"Expected four [x, y, w, h] values; got {len(bbox) if bbox else 0} values."
                     )
                     continue
 
@@ -240,33 +198,20 @@ class KenyanWildlifeAdapter(DatasetAdapter):
 
                 class_key = id_to_key[coco_catid]
 
-                ann_id = make_ann_id(
-                    image_id=image_id,
-                    class_key=class_key,
-                    ann_type=AnnType.HBB,
-                    geometry=geom,
-                    source=SourceType.ORIGINAL,
-                    instance_index=i,
-                    salt=str(a.get("id", "")),
-                )
-
                 yield InstanceAnnotationRecord(
-                    ann_id=ann_id,
+                    ann_id=make_ann_id(
+                        image_id=image_id,
+                        class_key=class_key,
+                        ann_type=AnnType.HBB,
+                        geometry=geom,
+                        source=SourceType.ORIGINAL,
+                        instance_index=i,
+                        salt=str(a.get("id", "")),
+                    ),
                     image_id=image_id,
                     class_key=class_key,
                     ann_type=AnnType.HBB,
                     geometry=geom,
                     source=SourceType.ORIGINAL,
-                    score=None,
                     instance_index=i,
-                    meta={
-                        "split": split_type.value,
-                        "coco_ann_id": a.get("id"),
-                        "coco_image_id": coco_imgid,
-                        "coco_category_id": coco_catid,
-                        "area": a.get("area"),
-                        "iscrowd": a.get("iscrowd"),
-                        "segmentation": a.get("segmentation"),
-                        "coco_split_dir": split_dir,
-                    },
                 )

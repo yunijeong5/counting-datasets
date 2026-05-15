@@ -13,7 +13,6 @@ from counting_dataset.core.schema import (
     ClassRecord,
     ImageRecord,
     InstanceAnnotationRecord,
-    Provenance,
     SourceType,
     SplitType,
     HBB,
@@ -48,20 +47,13 @@ class DOTAAdapter:
       Each <image>.txt contains optional metadata lines followed by instance rows:
         x1 y1 x2 y2 x3 y3 x4 y4 category difficult
 
-      Vertices are ordered clockwise. `difficult` is 1 (difficult) or 0.
-
     Strategy:
-      - Create one class per category:
-          class_key = "dota/<slugified_category>"
-      - Map split directories:
-          train -> SplitType.TRAIN
-          val   -> SplitType.VAL
-      - Emit OBB annotations as canonical instances:
-          ann_type=OBB, role="instance"
-      - Emit HBB annotations as alternative geometry for the same objects:
-          ann_type=HBB, role="hbb"
-      - Pair OBB and HBB rows by annotation row index when possible and
-        store pairing metadata for traceability.
+      - Create one class per category: class_key = "dota/<slugified_category>"
+      - HBB annotations are the canonical instances (role="instance") since most
+        CV models expect axis-aligned boxes.
+      - OBB annotations are stored as auxiliary geometry (role="obb").
+      - HBB and OBB rows are paired by row index in their respective files.
+      - The `difficult` flag is preserved in annotation meta for eval filtering.
     """
 
     dataset = "dota"
@@ -77,7 +69,6 @@ class DOTAAdapter:
         return self._dataset_root(ctx) / split_dir / "images"
 
     def _ann_dir(self, ctx: AdapterContext, split_dir: str, kind: str) -> Path:
-        # kind in {"obb", "hbb"}
         return self._dataset_root(ctx) / split_dir / "annotation" / kind
 
     @staticmethod
@@ -86,12 +77,6 @@ class DOTAAdapter:
         *,
         mode: Literal["both", "header", "rows"] = "both",
     ) -> Tuple[Dict[str, str], List[dict]]:
-        """
-        mode:
-          - "both": parse header + rows
-          - "header": parse header only (stop when first instance row is encountered)
-          - "rows": parse rows only (ignore header)
-        """
         header: Dict[str, str] = {}
         rows: List[dict] = []
 
@@ -104,7 +89,6 @@ class DOTAAdapter:
                 if not raw:
                     continue
 
-                # detect header line
                 is_header = ":" in raw and not re.match(r"^\s*-?\d+(\.\d+)?\b", raw)
 
                 if is_header:
@@ -116,9 +100,7 @@ class DOTAAdapter:
                             header[k] = v
                     continue
 
-                # from here: not a header line -> likely an instance row
                 if mode == "header":
-                    # we got everything we need
                     break
 
                 parts = raw.split()
@@ -166,7 +148,6 @@ class DOTAAdapter:
         return OBB(corners=(x1, y1, x2, y2, x3, y3, x4, y4))
 
     def iter_classes(self, ctx: AdapterContext) -> Iterable[ClassRecord]:
-        # Discover classes by scanning OBB annotations (preferred), across splits.
         seen: Dict[str, str] = {}
 
         for split_dir, _split in self._split_dirs():
@@ -186,7 +167,6 @@ class DOTAAdapter:
                 class_key=ck,
                 dataset=self.dataset,
                 name=seen[ck],
-                meta={},
             )
 
     def iter_images(self, ctx: AdapterContext) -> Iterable[ImageRecord]:
@@ -194,14 +174,11 @@ class DOTAAdapter:
 
         for split_dir, split in self._split_dirs():
             img_dir = self._images_dir(ctx, split_dir)
-            obb_dir = self._ann_dir(ctx, split_dir, "obb")
-            hbb_dir = self._ann_dir(ctx, split_dir, "hbb")
 
             if not img_dir.exists():
                 continue
 
             for img_path in sorted(img_dir.glob("*.png")):
-                img_name = img_path.stem  # e.g. "P0003"
                 rel = normalize_relpath(f"{split_dir}/images/{img_path.name}")
                 abs_path = root / rel
 
@@ -210,41 +187,16 @@ class DOTAAdapter:
 
                 image_id = make_image_id(self.dataset, rel)
 
-                obb_txt = obb_dir / f"{img_name}.txt"
-                hbb_txt = hbb_dir / f"{img_name}.txt"
-                obb_header, _ = self._parse_ann_file(obb_txt, mode="header")
-                hbb_header, _ = self._parse_ann_file(hbb_txt, mode="header")
-
-                # union: obb overrides hbb if both present
-                header = dict(hbb_header)
-                header.update(obb_header)
-
-                meta = {
-                    # common normalized keys (best-effort)
-                    "imagesource": header.get("imagesource"),
-                    "gsd": header.get("gsd"),
-                    # preserve full header for completeness
-                    "header": header,
-                    "has_obb": obb_txt.exists(),
-                    "has_hbb": hbb_txt.exists(),
-                }
-
                 yield ImageRecord(
                     image_id=image_id,
                     path=str(abs_path),
                     width=int(width),
                     height=int(height),
                     split=split,
-                    provenance=Provenance(
-                        dataset=self.dataset,
-                        original_relpath=rel,
-                        original_filename=img_path.name,
-                        original_id=img_name,
-                        sha1=None,
-                        size_bytes=None,
-                    ),
-                    counts={},  # builder fills from role="instance"
-                    meta=meta,
+                    dataset=self.dataset,
+                    original_relpath=rel,
+                    original_filename=img_path.name,
+                    original_id=img_path.stem,
                 )
 
     def iter_annotations(
@@ -252,11 +204,11 @@ class DOTAAdapter:
     ) -> Iterable[InstanceAnnotationRecord]:
         """
         Emits:
-          - OBB as role="instance" (canonical)
-          - HBB as role="hbb" (paired alternative geometry)
+          - HBB as role="instance" (canonical; drives per-image counts)
+          - OBB as role="obb" (auxiliary oriented geometry)
+        HBB and OBB rows are paired by row index in their respective annotation files.
         """
-
-        for split_dir, split in self._split_dirs():
+        for split_dir, _split in self._split_dirs():
             img_dir = self._images_dir(ctx, split_dir)
             obb_dir = self._ann_dir(ctx, split_dir, "obb")
             hbb_dir = self._ann_dir(ctx, split_dir, "hbb")
@@ -275,45 +227,7 @@ class DOTAAdapter:
                 _, obb_rows = self._parse_ann_file(obb_txt, mode="rows")
                 _, hbb_rows = self._parse_ann_file(hbb_txt, mode="rows")
 
-                # 1) Canonical OBB instances
-                for row_i, r in enumerate(obb_rows):
-                    corners = r["corners"]
-                    cat = r["category"]
-                    difficult = int(r.get("difficult", 0) or 0)
-
-                    class_key = f"{self.dataset}/{_slugify(cat)}"
-                    geom = self._make_obb_geometry(corners)
-
-                    ann_id = make_ann_id(
-                        image_id=image_id,
-                        class_key=class_key,
-                        ann_type=AnnType.OBB,
-                        geometry=geom,
-                        source=SourceType.ORIGINAL,
-                        instance_index=row_i,
-                        salt=f"obb:{row_i}",
-                    )
-
-                    yield InstanceAnnotationRecord(
-                        ann_id=ann_id,
-                        image_id=image_id,
-                        class_key=class_key,
-                        ann_type=AnnType.OBB,
-                        geometry=geom,
-                        role="instance",
-                        instance_index=row_i,
-                        source=SourceType.ORIGINAL,
-                        score=None,
-                        meta={
-                            "split": split.value,
-                            "image_name": img_path.name,
-                            "difficult": difficult,
-                            "annotation_row_index": row_i,
-                            "paired_with_ann_type": AnnType.HBB.value,
-                        },
-                    )
-
-                # 2) Auxiliary HBB geometry (paired by row index)
+                # 1) Canonical HBB instances
                 for row_i, r in enumerate(hbb_rows):
                     corners = r["corners"]
                     cat = r["category"]
@@ -322,31 +236,51 @@ class DOTAAdapter:
                     class_key = f"{self.dataset}/{_slugify(cat)}"
                     geom_hbb = self._corners_to_hbb(corners)
 
-                    ann_id = make_ann_id(
+                    yield InstanceAnnotationRecord(
+                        ann_id=make_ann_id(
+                            image_id=image_id,
+                            class_key=class_key,
+                            ann_type=AnnType.HBB,
+                            geometry=geom_hbb,
+                            source=SourceType.ORIGINAL,
+                            instance_index=row_i,
+                            salt=f"hbb:{row_i}",
+                        ),
                         image_id=image_id,
                         class_key=class_key,
                         ann_type=AnnType.HBB,
                         geometry=geom_hbb,
-                        source=SourceType.ORIGINAL,
+                        role="instance",
                         instance_index=row_i,
-                        salt=f"hbb:{row_i}",
+                        source=SourceType.ORIGINAL,
+                        meta={"difficult": difficult},
                     )
 
+                # 2) Auxiliary OBB geometry
+                for row_i, r in enumerate(obb_rows):
+                    corners = r["corners"]
+                    cat = r["category"]
+                    difficult = int(r.get("difficult", 0) or 0)
+
+                    class_key = f"{self.dataset}/{_slugify(cat)}"
+                    geom_obb = self._make_obb_geometry(corners)
+
                     yield InstanceAnnotationRecord(
-                        ann_id=ann_id,
+                        ann_id=make_ann_id(
+                            image_id=image_id,
+                            class_key=class_key,
+                            ann_type=AnnType.OBB,
+                            geometry=geom_obb,
+                            source=SourceType.ORIGINAL,
+                            instance_index=row_i,
+                            salt=f"obb:{row_i}",
+                        ),
                         image_id=image_id,
                         class_key=class_key,
-                        ann_type=AnnType.HBB,
-                        geometry=geom_hbb,
-                        role="hbb",
+                        ann_type=AnnType.OBB,
+                        geometry=geom_obb,
+                        role="obb",
                         instance_index=row_i,
                         source=SourceType.ORIGINAL,
-                        score=None,
-                        meta={
-                            "split": split.value,
-                            "image_name": img_path.name,
-                            "difficult": difficult,
-                            "annotation_row_index": row_i,
-                            "paired_with_ann_type": AnnType.OBB.value,
-                        },
+                        meta={"difficult": difficult},
                     )

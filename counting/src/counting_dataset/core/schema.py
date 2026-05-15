@@ -27,7 +27,6 @@ class AnnType(str, Enum):
 
 class SourceType(str, Enum):
     ORIGINAL = "original"  # from dataset authors
-    HUMAN = "human"  # manually labeled by our annotators
     CROWDSOURCE = "crowd"  # crowd-sourced
     GENERATED = "generated"  # SAM/other auto labels
 
@@ -89,22 +88,6 @@ Geometry = Union[Point, HBB, OBB, Polygon, MaskRef]
 
 
 # ----------------------------
-# Provenance / traceability
-# ----------------------------
-
-
-@dataclass(frozen=True)
-class Provenance:
-    dataset: str  # e.g. "dota"
-    original_relpath: str  # relative to raw dataset root
-    original_filename: str
-    original_id: Optional[str] = None  # if dataset defines a stable id
-    # Optional fingerprinting for traceability / dedup
-    sha1: Optional[str] = None
-    size_bytes: Optional[int] = None
-
-
-# ----------------------------
 # Core records
 # ----------------------------
 
@@ -114,23 +97,19 @@ class ClassRecord:
     class_key: ClassKey  # "{dataset}/{slugified_class_name}"
     dataset: str  # duplicated for convenience
     name: str  # "bird", "elephant", "cell", ...
-    # Optional: link dataset-specific taxonomy if needed later
-    meta: Dict[str, Any] = field(default_factory=dict)
 
 
 @dataclass
 class ImageRecord:
     image_id: ImageId
-    path: str  # path to the image file (under <root>/raw/)
+    path: str  # absolute path to the image file
     width: int
     height: int
     split: SplitType
-    provenance: Provenance
-
-    # Cached derived values for fast queries (sparse: only present classes)
-    counts: Dict[ClassKey, int] = field(default_factory=dict)
-
-    # Optional per-image metadata (sensor, location, capture time, etc.)
+    dataset: str  # dataset key (e.g. "malaria", "birds")
+    original_relpath: str  # stable relative path within raw/<dataset>/
+    original_filename: str  # basename of the image file
+    original_id: Optional[str] = None  # dataset's own stable identifier if any
     meta: Dict[str, Any] = field(default_factory=dict)
 
 
@@ -140,14 +119,11 @@ class InstanceAnnotationRecord:
     image_id: ImageId  # foreign key (-> ImageRecord)
     class_key: ClassKey  # foreign key (-> ClassRecord)
     ann_type: AnnType  # how to interpret geometry
-    geometry: Geometry  # actual spacial information
-    role: str = "instance"  # "instance" | "aux" | ...
-    instance_index: Optional[int] = None  # use as salt if needed (when making ann_id)
+    geometry: Geometry  # actual spatial information
+    role: str = "instance"  # "instance" | "hbb" | "obb" | "exemplar" | ...
+    instance_index: Optional[int] = None  # used as salt when making ann_id
 
-    source: SourceType = (
-        SourceType.ORIGINAL
-    )  # who and what produced this instance record
+    source: SourceType = SourceType.ORIGINAL  # who produced this record
 
-    # Optional quality/provenance details (who labeled, model version, vote count, etc.)
-    score: Optional[float] = None
+    # Optional quality/provenance details (who labeled, model version, etc.)
     meta: Dict[str, Any] = field(default_factory=dict)

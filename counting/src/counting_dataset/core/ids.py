@@ -156,7 +156,7 @@ def make_ann_id(
 def file_sha1(path: Path, chunk_size: int = 1 << 20) -> str:
     """
     Compute SHA1 for a file (debugging/dedup/provenance).
-    Not required for IDs, but useful to store in Provenance.
+    Not required for IDs, but useful for dedup verification.
     """
     h = hashlib.sha1()
     with path.open("rb") as f:

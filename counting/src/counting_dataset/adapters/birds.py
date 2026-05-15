@@ -13,7 +13,6 @@ from counting_dataset.core.schema import (
     ImageRecord,
     InstanceAnnotationRecord,
     Point,
-    Provenance,
     SourceType,
     SplitType,
 )
@@ -29,7 +28,7 @@ except ImportError:
 
 def _tile_number(tile_name: str) -> int:
     """'tile_33.jpg' -> 33"""
-    stem = tile_name.rsplit(".", 1)[0]  # 'tile_33'
+    stem = tile_name.rsplit(".", 1)[0]
     return int(stem.split("_", 1)[1])
 
 
@@ -38,11 +37,6 @@ def _compute_pseudo_bboxes(
 ) -> Optional[List[Tuple[float, float, float, float]]]:
     """
     Estimate per-bird bounding boxes using Otsu thresholding.
-
-    This is a direct port of ``get_annotations()`` from detector_counting.py,
-    with image I/O factored out.  ``sorted_regions`` must be in the same order
-    as you want the returned boxes -- one box per region, same index.
-
     Returns None when scikit-image is absent, the image is unreadable, or
     there are no regions.
     """
@@ -68,11 +62,9 @@ def _compute_pseudo_bboxes(
     if total_area == 0 or n == 0:
         return None
 
-    # First-pass radius from raw foreground density
     r = np.sqrt(total_area / n) / 2 * 1.5
     r_buf = r * 2
 
-    # Rough foreground mask centered on each bird
     mask = np.zeros((H, W), dtype=np.float32)
     for reg in sorted_regions:
         cx = int(reg["shape_attributes"]["cx"])
@@ -81,7 +73,6 @@ def _compute_pseudo_bboxes(
         y0, y1 = max(0, cy - int(r_buf)), min(H, cy + int(r_buf))
         mask[y0:y1, x0:x1] = 1.0
 
-    # Second-pass: refine radius with masked foreground
     masked_area = float(np.sum(mask * fg))
     if masked_area > 0:
         r = np.sqrt(masked_area / n) / 2 * 1.5
@@ -106,44 +97,26 @@ class BirdsAdapter(DatasetAdapter):
               <batch_id>/
                 tile_<N>.jpg
               labels/
-                <batch_id>.json    # VIA-format labels for all tiles in this batch
+                <batch_id>.json
             tiles_DSC5295/
               ...
 
-    Design decisions
-    ----------------
-    * **Unit of analysis is the tile**, not the full TIF.  Each 200×200 tile
-      becomes one ``ImageRecord``.  Tile-local pixel coordinates are preserved
-      as-is so tile size can be changed later without invalidating any stored
-      values.
-    * **One class** ``birds/bird``.  The two source images are distinguished by
-      ``image.meta["scene"]`` (e.g., ``"sky"`` or ``"reeds"``), which supports
-      API-level filtering via ``meta_filter={"scene": "sky"}``.
-    * **Two annotation types per labeled point**:
-
-      - ``AnnType.POINT``  / ``role="instance"`` / ``source=ORIGINAL`` —
-        the crowd-labeled ground truth; drives counting aggregates.
-      - ``AnnType.HBB``    / ``role="hbb"``      / ``source=GENERATED`` —
-        pseudo-bbox derived from Otsu thresholding (same method as
-        ``detector_counting.py``).  Only emitted when scikit-image is
-        installed.  Does **not** contribute to per-image bird counts.
-
-    * Tiles with zero annotations are still emitted as ``ImageRecord``s.
-    * ``split = UNSPECIFIED`` (no train/val/test partition in the raw data).
+    * Unit of analysis is the tile (200×200).
+    * One class: birds/bird.
+    * scene ("sky" or "reeds") stored in image meta for meta_filter use.
+    * Two annotation types per labeled point:
+      - POINT / role="instance" / source=ORIGINAL — ground-truth count.
+      - HBB  / role="hbb"      / source=GENERATED — Otsu pseudo-bbox
+        (only emitted when scikit-image is installed; does not count).
+    * Tiles with zero annotations are still indexed as ImageRecords.
     """
 
     dataset = "birds"
 
-    # Maps raw tile-directory prefix → human-readable scene name stored in meta.
-    # Keep the raw directory names in raw/birds; rename by updating this dict.
     _SOURCE_NAMES: Dict[str, str] = {
         "tiles_DSC5214": "sky",
         "tiles_DSC5295": "reeds",
     }
-
-    # ------------------------------------------------------------------
-    # Internal helpers
-    # ------------------------------------------------------------------
 
     def _dataset_root(self, ctx: AdapterContext) -> Path:
         return ctx.raw_root / "birds"
@@ -152,10 +125,6 @@ class BirdsAdapter(DatasetAdapter):
         return self._dataset_root(ctx) / "tiles"
 
     def _iter_label_files(self, ctx: AdapterContext) -> Iterable[Tuple[str, int, Path]]:
-        """
-        Yield ``(source_image_name, batch_id, label_json_path)`` in a stable,
-        sorted order.
-        """
         tiles_root = self._tiles_root(ctx)
         src_dirs = sorted(
             p
@@ -174,7 +143,6 @@ class BirdsAdapter(DatasetAdapter):
 
     @staticmethod
     def _tile_dims(path: Path) -> Tuple[int, int]:
-        """Return ``(width, height)``, defaulting to 200x200 on failure."""
         try:
             from PIL import Image as _PIL
 
@@ -185,22 +153,16 @@ class BirdsAdapter(DatasetAdapter):
 
     @staticmethod
     def _sorted_entries(data: Dict) -> List[Tuple[str, dict]]:
-        """Sort JSON entries by tile number for deterministic output."""
         return sorted(
             data.items(),
             key=lambda kv: _tile_number(kv[1]["filename"].split("/")[-1]),
         )
-
-    # ------------------------------------------------------------------
-    # Adapter protocol
-    # ------------------------------------------------------------------
 
     def iter_classes(self, ctx: AdapterContext) -> Iterable[ClassRecord]:
         yield ClassRecord(
             class_key=f"{self.dataset}/bird",
             dataset=self.dataset,
             name="bird",
-            meta={},
         )
 
     def iter_images(self, ctx: AdapterContext) -> Iterable[ImageRecord]:
@@ -212,9 +174,6 @@ class BirdsAdapter(DatasetAdapter):
                 data: Dict = json.load(f)
 
             for _key, value in self._sorted_entries(data):
-                # if not (value.get("regions") or []):
-                #     continue  # skip tiles with no labeled birds
-
                 filename = value["filename"]
                 tile_name = filename.split("/")[-1]
                 relpath = self._tile_relpath(src_img, batch, tile_name)
@@ -233,21 +192,10 @@ class BirdsAdapter(DatasetAdapter):
                     width=w,
                     height=h,
                     split=SplitType.UNSPECIFIED,
-                    provenance=Provenance(
-                        dataset=self.dataset,
-                        original_relpath=relpath,
-                        original_filename=tile_name,
-                        original_id=None,
-                        sha1=None,
-                        size_bytes=None,
-                    ),
-                    counts={},
-                    meta={
-                        "scene": self._SOURCE_NAMES.get(src_img, src_img),
-                        "source_image": src_img,
-                        "batch": batch,
-                        "tile_number": _tile_number(tile_name),
-                    },
+                    dataset=self.dataset,
+                    original_relpath=relpath,
+                    original_filename=tile_name,
+                    meta={"scene": self._SOURCE_NAMES.get(src_img, src_img)},
                 )
 
     def iter_annotations(
@@ -270,7 +218,6 @@ class BirdsAdapter(DatasetAdapter):
                 relpath = self._tile_relpath(src_img, batch, tile_name)
                 image_id = make_image_id(self.dataset, relpath)
 
-                # Sort by (cx, cy) for a deterministic instance_index
                 sorted_regions = sorted(
                     regions,
                     key=lambda r: (
@@ -286,14 +233,7 @@ class BirdsAdapter(DatasetAdapter):
                     cx = float(reg["shape_attributes"]["cx"])
                     cy = float(reg["shape_attributes"]["cy"])
                     pt_geom = Point(x=cx, y=cy)
-                    ann_meta = {
-                        "scene": self._SOURCE_NAMES.get(src_img, src_img),
-                        "source_image": src_img,
-                        "batch": batch,
-                        "tile_name": tile_name,
-                    }
 
-                    # --- ground-truth point (counts toward bird total) ---
                     yield InstanceAnnotationRecord(
                         ann_id=make_ann_id(
                             image_id=image_id,
@@ -310,10 +250,8 @@ class BirdsAdapter(DatasetAdapter):
                         role="instance",
                         source=SourceType.ORIGINAL,
                         instance_index=inst_idx,
-                        meta=ann_meta,
                     )
 
-                    # --- pseudo-bbox (auxiliary; does not affect counts) ---
                     if pseudo_boxes is not None:
                         x1, y1, x2, y2 = pseudo_boxes[inst_idx]
                         hbb_geom = HBB(
@@ -338,9 +276,4 @@ class BirdsAdapter(DatasetAdapter):
                             role="hbb",
                             source=SourceType.GENERATED,
                             instance_index=inst_idx,
-                            meta={
-                                **ann_meta,
-                                "point_cx": cx,
-                                "point_cy": cy,
-                            },
                         )

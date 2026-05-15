@@ -14,7 +14,6 @@ from counting_dataset.core.schema import (
     ImageRecord,
     InstanceAnnotationRecord,
     Point,
-    Provenance,
     SourceType,
     SplitType,
 )
@@ -31,46 +30,36 @@ class PenguinAdapter:
         - annotation.json
 
     Annotation semantics (annotation.json):
-      - Each entry in obj["dots"] has:
-          {"imName": <stem>, "xy": ...}
-      - "xy" meanings:
-          * xy == null        -> UNLABELED (nobody reviewed / no annotator outputs)
-          * xy == list        -> reviewed; each list item is an annotator output
-                                (may be "_NaN_" or [] to indicate empty votes)
-      - Not all images in the dataset has an entry in annotation.json.
+      - Each entry in obj["dots"] has: {"imName": <stem>, "xy": ...}
+      - "xy" == null        -> UNLABELED
+      - "xy" == list        -> reviewed; each list item is one annotator's output
+                               (may be "_NaN_" or [] to indicate an empty vote)
 
     Indexing scope (include_unlabeled):
-      - include_unlabeled=False (default):
-          Skip images whose annotation entry is missing in annotation.json or has {"xy": null}. Both are treated as unlabled.
-          This avoids opening tens of thousands of unlabeled images just to read size. For context, 78,078 of 81,941 total images are unlabeled.
-      - include_unlabeled=True:
-          Index all images from split.json, regardless of whether it has no entry in annotation.json or xy is null.
+      - False (default): skip images with no annotation entry or xy=null.
+        (78,078 of 81,941 images are unlabeled — avoids opening them all.)
+      - True: index all images in split.json.
 
-    Strategy:
-      - Define a single class: "penguin/penguin".
-      - Assign splits using split.json.
-      - Emit one POINT annotation per point per annotator with source=CROWDSOURCE.
-      - Treat "_NaN_" and [] as empty votes (no points emitted).
-      - Store crowd stats under ImageRecord.meta["crowd"] for downstream filtering.
+    Image meta stores crowd statistics (review_status, annotator counts) as a
+    build-time data carrier for the index builder's image_review_stats table.
+    These stats drive downstream crowd-quality filtering and are not surfaced
+    directly in __getitem__.
+
+    Annotation meta stores annotator_index per point to support inter-annotator
+    agreement analysis.
     """
 
     dataset = "penguin"
 
     def __init__(self, *, include_unlabeled: bool = False):
-        if not include_unlabeled:
-            self.include_unlabeled = bool(include_unlabeled)
+        self.include_unlabeled = bool(include_unlabeled)
 
     def _dataset_root(self, ctx: AdapterContext) -> Path:
         return ctx.raw_root / "penguin"
 
     def _load_split_map(self, ctx: AdapterContext) -> Dict[str, SplitType]:
-        """
-        Returns mapping from image relpath (e.g., "images/DAMOa/DAMOa2014a_000123.JPG")
-        to SplitType.
-        """
         root = self._dataset_root(ctx)
-        split_path = root / "split.json"
-        with split_path.open("r", encoding="utf-8") as f:
+        with (root / "split.json").open("r", encoding="utf-8") as f:
             obj = json.load(f)
 
         imdb = obj.get("imdb", {}) or {}
@@ -78,69 +67,49 @@ class PenguinAdapter:
 
         def add_many(items: List[str], split: SplitType) -> None:
             for p in items:
-                # split.json paths are relative to penguin/images/, so we prefix "images/"
-                rel = normalize_relpath(f"images/{p}")
-                out[rel] = split
+                out[normalize_relpath(f"images/{p}")] = split
 
         add_many(imdb.get("train", []), SplitType.TRAIN)
         add_many(imdb.get("val", []), SplitType.VAL)
         add_many(imdb.get("test", []), SplitType.TEST)
-
         return out
 
     def _index_relpaths_by_stem(self, ctx: AdapterContext) -> Dict[str, List[str]]:
-        """
-        Map `imName` style stems (no ext, no subdir) to one or more relpaths.
-        Example key: "BAILa2014a_000003"
-        Value: ["images/BAILa/BAILa2014a_000003.JPG"]
-        """
         root = self._dataset_root(ctx)
         images_dir = root / "images"
-
         mapping: Dict[str, List[str]] = {}
 
-        for sub in sorted(
-            [p for p in images_dir.iterdir() if p.is_dir()], key=lambda p: p.name
-        ):
+        for sub in sorted([p for p in images_dir.iterdir() if p.is_dir()], key=lambda p: p.name):
             for img_path in sorted(sub.glob("*.JPG")):
-                stem = img_path.stem
                 rel = normalize_relpath(str(img_path.relative_to(root)))
-                mapping.setdefault(stem, []).append(rel)
-
+                mapping.setdefault(img_path.stem, []).append(rel)
             for img_path in sorted(sub.glob("*.jpg")):
-                stem = img_path.stem
                 rel = normalize_relpath(str(img_path.relative_to(root)))
-                mapping.setdefault(stem, []).append(rel)
+                mapping.setdefault(img_path.stem, []).append(rel)
 
         return mapping
 
     def _load_annotation_stats(self, ctx: AdapterContext) -> Dict[str, dict]:
-        """
-        Returns mapping: imName(stem) -> crowd stats dict.
-        """
+        """Returns mapping: imName(stem) -> crowd stats dict."""
         root = self._dataset_root(ctx)
-        ann_path = root / "annotation.json"
-        with ann_path.open("r", encoding="utf-8") as f:
+        with (root / "annotation.json").open("r", encoding="utf-8") as f:
             obj = json.load(f)
 
         stats: Dict[str, dict] = {}
-        dots = obj.get("dots", []) or []
-        for d in dots:
+        for d in obj.get("dots", []) or []:
             im_name = str(d.get("imName", "")).strip()
             if not im_name:
                 continue
 
-            xy = d.get("xy", None)  # null on JSON
+            xy = d.get("xy", None)
 
             if xy is None:
-                # unlabeled/unreviewed: nobody has checked yet
                 stats[im_name] = {
                     "review_status": "unreviewed",
                     "num_annotator_entries": 0,
                     "num_empty_votes": 0,
                     "num_point_votes": 0,
                     "num_points_total": 0,
-                    "num_points_per_annotator": [],
                 }
                 continue
 
@@ -151,48 +120,36 @@ class PenguinAdapter:
                     "num_empty_votes": 0,
                     "num_point_votes": 0,
                     "num_points_total": 0,
-                    "num_points_per_annotator": [],
                 }
                 continue
 
             num_empty = 0
             num_point_votes = 0
-            points_per_annotator: List[int] = []
             total_points = 0
 
             for entry in xy:
                 if entry == "_NaN_":
                     num_empty += 1
-                    points_per_annotator.append(0)
                     continue
-
                 if isinstance(entry, list):
                     if len(entry) == 0:
                         num_empty += 1
-                        points_per_annotator.append(0)
                         continue
-
-                    cnt = 0
-                    for pt in entry:
-                        if isinstance(pt, (list, tuple)) and len(pt) == 2:
-                            try:
-                                float(pt[0])
-                                float(pt[1])
-                                cnt += 1
-                            except Exception:
-                                pass
-
+                    cnt = sum(
+                        1
+                        for pt in entry
+                        if isinstance(pt, (list, tuple))
+                        and len(pt) == 2
+                        and _safe_float(pt[0]) is not None
+                        and _safe_float(pt[1]) is not None
+                    )
                     if cnt == 0:
                         num_empty += 1
                     else:
                         num_point_votes += 1
-
-                    points_per_annotator.append(cnt)
                     total_points += cnt
-                    continue
-
-                num_empty += 1
-                points_per_annotator.append(0)
+                else:
+                    num_empty += 1
 
             stats[im_name] = {
                 "review_status": "reviewed",
@@ -200,17 +157,15 @@ class PenguinAdapter:
                 "num_empty_votes": num_empty,
                 "num_point_votes": num_point_votes,
                 "num_points_total": total_points,
-                "num_points_per_annotator": points_per_annotator,
             }
 
         return stats
 
     def iter_classes(self, ctx: AdapterContext) -> Iterable[ClassRecord]:
         yield ClassRecord(
-            class_key=f"{self.dataset}/penguin",  # no penguin species information provided.
+            class_key=f"{self.dataset}/penguin",
             dataset=self.dataset,
             name="penguin",
-            meta={},
         )
 
     def iter_images(self, ctx: AdapterContext) -> Iterable[ImageRecord]:
@@ -218,33 +173,22 @@ class PenguinAdapter:
         split_map = self._load_split_map(ctx)
         ann_stats = self._load_annotation_stats(ctx)
 
-        # Only include images that appear in split.json (source of truth)
-        relpaths = sorted(split_map.keys())
-
-        for rel in relpaths:
+        for rel in sorted(split_map.keys()):
             abs_path = root / rel
             split = split_map[rel]
-            stem = Path(rel).stem  # e.g., "BAILa2014a_000003"
+            stem = Path(rel).stem
 
             crowd = ann_stats.get(stem, None)
 
-            # If include_unlabeled=False (default), we only index images that have an
-            # entry in annotation.json *AND* are not {"xy": null}.
             if not self.include_unlabeled:
                 if crowd is None:
-                    # image does not have an entry in annotation.json.
-                    # missing_in_annotation_json -> treat as unlabeled for indexing scope
                     continue
                 if crowd.get("review_status") == "unreviewed":
-                    # {"xy": null} -> unlabeled per your definition
                     continue
 
             if crowd is None:
                 crowd = {"review_status": "missing_in_annotation_json"}
 
-            meta = {"crowd": crowd}
-
-            # Only reliable size source is the actual image.
             with Image.open(abs_path) as im:
                 width, height = im.size
 
@@ -256,16 +200,12 @@ class PenguinAdapter:
                 width=int(width),
                 height=int(height),
                 split=split,
-                provenance=Provenance(
-                    dataset=self.dataset,
-                    original_relpath=rel,
-                    original_filename=Path(rel).name,
-                    original_id=None,
-                    sha1=None,
-                    size_bytes=None,
-                ),
-                counts={},
-                meta=meta,
+                dataset=self.dataset,
+                original_relpath=rel,
+                original_filename=Path(rel).name,
+                # crowd dict is a build-time data carrier for image_review_stats;
+                # not surfaced in __getitem__
+                meta={"crowd": crowd},
             )
 
     def iter_annotations(
@@ -277,27 +217,17 @@ class PenguinAdapter:
 
         class_key = f"{self.dataset}/penguin"
 
-        ann_path = root / "annotation.json"
-        with ann_path.open("r", encoding="utf-8") as f:
+        with (root / "annotation.json").open("r", encoding="utf-8") as f:
             obj = json.load(f)
 
-        dots = obj.get("dots", []) or []
-        dots_sorted = sorted(dots, key=lambda d: str(d.get("imName", "")))
-
+        dots_sorted = sorted(obj.get("dots", []) or [], key=lambda d: str(d.get("imName", "")))
         per_image_counter: Dict[str, int] = {}
 
         for d in dots_sorted:
             im_name = str(d.get("imName", "")).strip()
             xy = d.get("xy", None)
 
-            if not im_name:
-                continue
-
-            # unlabeled images have xy == None; no points to emit
-            if xy is None:
-                continue
-
-            if not isinstance(xy, list):
+            if not im_name or xy is None or not isinstance(xy, list):
                 continue
 
             relpaths = stem_to_relpaths.get(im_name, [])
@@ -321,49 +251,43 @@ class PenguinAdapter:
             for annotator_index, entry in enumerate(xy):
                 if entry == "_NaN_":
                     continue
-                if not isinstance(entry, list):
-                    continue
-                if len(entry) == 0:
+                if not isinstance(entry, list) or len(entry) == 0:
                     continue
 
                 for pt_i, pt in enumerate(entry):
                     if not isinstance(pt, (list, tuple)) or len(pt) != 2:
                         continue
-                    try:
-                        x = float(pt[0])
-                        y = float(pt[1])
-                    except Exception:
+                    x = _safe_float(pt[0])
+                    y = _safe_float(pt[1])
+                    if x is None or y is None:
                         continue
 
                     geom = Point(x=x, y=y)
                     instance_index = per_image_counter[image_id]
                     per_image_counter[image_id] += 1
 
-                    ann_id = make_ann_id(
+                    yield InstanceAnnotationRecord(
+                        ann_id=make_ann_id(
+                            image_id=image_id,
+                            class_key=class_key,
+                            ann_type=AnnType.POINT,
+                            geometry=geom,
+                            source=SourceType.CROWDSOURCE,
+                            instance_index=instance_index,
+                            salt=f"{annotator_index}:{pt_i}",
+                        ),
                         image_id=image_id,
                         class_key=class_key,
                         ann_type=AnnType.POINT,
                         geometry=geom,
                         source=SourceType.CROWDSOURCE,
                         instance_index=instance_index,
-                        salt=f"{annotator_index}:{pt_i}",
+                        meta={"annotator_index": annotator_index},
                     )
 
-                    yield InstanceAnnotationRecord(
-                        ann_id=ann_id,
-                        image_id=image_id,
-                        class_key=class_key,
-                        ann_type=AnnType.POINT,
-                        geometry=geom,
-                        source=SourceType.CROWDSOURCE,
-                        score=None,
-                        instance_index=instance_index,
-                        meta={
-                            "image_name": im_name,
-                            "chosen_relpath": chosen_rel,
-                            "split": split_map[chosen_rel].value,
-                            "annotator_index": annotator_index,
-                            "annotator_marked_empty": False,
-                            "raw_entry_type": "points",
-                        },
-                    )
+
+def _safe_float(v) -> Optional[float]:
+    try:
+        return float(v)
+    except Exception:
+        return None

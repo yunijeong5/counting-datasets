@@ -16,12 +16,10 @@ CREATE TABLE IF NOT EXISTS images (
   width               INTEGER NOT NULL,
   height              INTEGER NOT NULL,
 
-  -- provenance
+  -- provenance (flattened)
   original_relpath    TEXT NOT NULL,
   original_filename   TEXT NOT NULL,
   original_id         TEXT,
-  sha1                TEXT,
-  size_bytes          INTEGER,
 
   -- extras
   meta_json           TEXT NOT NULL
@@ -33,8 +31,7 @@ CREATE INDEX IF NOT EXISTS idx_images_split   ON images(split);
 CREATE TABLE IF NOT EXISTS classes (
   class_key           TEXT PRIMARY KEY,
   dataset             TEXT NOT NULL,
-  name                TEXT NOT NULL,
-  meta_json           TEXT NOT NULL
+  name                TEXT NOT NULL
 );
 
 CREATE INDEX IF NOT EXISTS idx_classes_dataset ON classes(dataset);
@@ -51,7 +48,6 @@ CREATE TABLE IF NOT EXISTS annotations (
   -- store geometry in JSON for flexibility (point/hbb/obb/etc.)
   geometry_json       TEXT NOT NULL,
 
-  score               REAL,
   meta_json           TEXT NOT NULL,
 
   role           TEXT NOT NULL DEFAULT 'instance',
@@ -91,11 +87,12 @@ CREATE TABLE IF NOT EXISTS image_total_counts (
 
 CREATE INDEX IF NOT EXISTS idx_itc_total_count ON image_total_counts(total_count);
 
--- Derived aggregate: crowd review/annotator participation per image
--- For non-crowd datasets, we store defaults (review_status='na', counts=0).
+-- Derived aggregate: crowd review/annotator participation per image.
+-- Only populated for crowd-annotated images (e.g., penguin).
+-- Non-crowd images have no row here; queries use LEFT JOIN + COALESCE.
 CREATE TABLE IF NOT EXISTS image_review_stats (
   image_id            TEXT PRIMARY KEY,
-  review_status       TEXT NOT NULL,   -- 'reviewed' | 'unreviewed' | 'malformed' | 'missing_in_annotation_json' | 'na'
+  review_status       TEXT NOT NULL,   -- 'reviewed' | 'unreviewed' | 'malformed' | 'missing_in_annotation_json'
   num_annotators      INTEGER NOT NULL,
   num_empty_votes     INTEGER NOT NULL,
   num_point_votes     INTEGER NOT NULL,

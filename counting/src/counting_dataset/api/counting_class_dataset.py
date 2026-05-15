@@ -147,7 +147,7 @@ class CountingClassDataset:
         where, params = self._image_filter_sql_and_params()
         sql = f"""
         SELECT a.ann_id, a.image_id, a.ann_type, a.source, a.instance_index,
-               a.geometry_json, a.score, a.meta_json, a.role
+               a.geometry_json, a.meta_json, a.role
         FROM annotations a
         WHERE a.class_key = ?
           AND a.image_id IN (
@@ -210,7 +210,7 @@ class CountingClassDataset:
             raw_rows = self._ann_cache.get(image_id, [])
         else:
             sql = """
-            SELECT ann_id, ann_type, source, instance_index, geometry_json, score, meta_json, role
+            SELECT ann_id, ann_type, source, instance_index, geometry_json, meta_json, role
             FROM annotations
             WHERE image_id = ? AND class_key = ?
             ORDER BY role ASC, instance_index ASC, ann_id ASC
@@ -229,7 +229,6 @@ class CountingClassDataset:
                 "source": r["source"],
                 "instance_index": r["instance_index"],
                 "geometry": json.loads(r["geometry_json"]),
-                "score": r["score"],
                 "meta": json.loads(r["meta_json"]),
                 "role": role,
             }
@@ -239,8 +238,7 @@ class CountingClassDataset:
             else:
                 aux.setdefault(role, []).append(ann)
 
-        # Important: keep count from icc for speed and consistency.
-        # But note: icc.count only tracks role='instance' by design, so it matches len(instances).
+        # icc.count only tracks role='instance' by design, consistent with len(instances).
         return {
             "image_id": image_id,
             "class_key": self.class_key,
@@ -253,3 +251,21 @@ class CountingClassDataset:
             "num_annotators": num_annotators,
             "num_point_votes": num_point_votes,
         }
+
+    def image_metadata(self) -> List[Dict[str, Any]]:
+        """
+        Return lightweight per-image metadata for all samples without loading annotations.
+
+        Each entry contains image_id, path, width, height, and the per-class count.
+        Use this instead of accessing _image_rows directly.
+        """
+        return [
+            {
+                "image_id": r["image_id"],
+                "path": r["path"],
+                "width": int(r["width"]),
+                "height": int(r["height"]),
+                "count": int(r["class_count"]),
+            }
+            for r in self._image_rows
+        ]

@@ -19,6 +19,7 @@ from counting_dataset.core.schema import (
     ImageRecord,
     InstanceAnnotationRecord,
 )
+
 from counting_dataset.core.splits import normalize_split
 
 from .schema_sql import SCHEMA_SQL
@@ -424,10 +425,10 @@ class IndexBuilder:
         self, conn: sqlite3.Connection, classes: List[ClassRecord]
     ) -> None:
         sql = """
-        INSERT OR REPLACE INTO classes (class_key, dataset, name, meta_json)
-        VALUES (?, ?, ?, ?)
+        INSERT OR REPLACE INTO classes (class_key, dataset, name)
+        VALUES (?, ?, ?)
         """
-        rows = [(c.class_key, c.dataset, c.name, _to_json(c.meta)) for c in classes]
+        rows = [(c.class_key, c.dataset, c.name) for c in classes]
         if rows:
             conn.executemany(sql, rows)
 
@@ -437,27 +438,24 @@ class IndexBuilder:
         sql = """
         INSERT OR REPLACE INTO images (
           image_id, dataset, split, path, width, height,
-          original_relpath, original_filename, original_id, sha1, size_bytes,
+          original_relpath, original_filename, original_id,
           meta_json
         )
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         """
         rows = []
         for im in images:
-            prov = im.provenance
             rows.append(
                 (
                     im.image_id,
-                    prov.dataset,
+                    im.dataset,
                     normalize_split(im.split.value),
                     im.path,
                     int(im.width),
                     int(im.height),
-                    prov.original_relpath,
-                    prov.original_filename,
-                    prov.original_id,
-                    prov.sha1,
-                    prov.size_bytes,
+                    im.original_relpath,
+                    im.original_filename,
+                    im.original_id,
                     _to_json(im.meta),
                 )
             )
@@ -471,9 +469,9 @@ class IndexBuilder:
         INSERT OR REPLACE INTO annotations (
           ann_id, image_id, class_key,
           ann_type, source, instance_index,
-          geometry_json, score, meta_json, role
+          geometry_json, meta_json, role
         )
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
         """
         rows = []
         for a in anns:
@@ -486,7 +484,6 @@ class IndexBuilder:
                     a.source.value,
                     a.instance_index,
                     _to_json(a.geometry),
-                    a.score,
                     _to_json(a.meta),
                     a.role,
                 )
@@ -534,6 +531,8 @@ class IndexBuilder:
         to_insert = []
         for image_id, meta_json in rows:
             stats = _extract_crowd_stats(meta_json or "")
+            if stats["review_status"] == "na":
+                continue  # no crowd data for this image; omit rather than store defaults
             to_insert.append(
                 (
                     image_id,

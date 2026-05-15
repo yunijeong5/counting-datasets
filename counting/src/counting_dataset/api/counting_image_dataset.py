@@ -209,7 +209,7 @@ class CountingImageDataset:
         # --- annotations ---
         ann_sql = f"""
         SELECT a.ann_id, a.image_id, a.class_key, a.ann_type, a.source,
-               a.instance_index, a.geometry_json, a.score, a.meta_json, a.role
+               a.instance_index, a.geometry_json, a.meta_json, a.role
         FROM annotations a
         WHERE a.image_id IN ({image_subquery})
         ORDER BY a.image_id ASC, a.role ASC, a.class_key ASC, a.instance_index ASC, a.ann_id ASC
@@ -232,7 +232,6 @@ class CountingImageDataset:
                 "source": r["source"],
                 "instance_index": r["instance_index"],
                 "geometry": json.loads(r["geometry_json"]),
-                "score": r["score"],
                 "meta": json.loads(r["meta_json"]),
                 "role": role,
             }
@@ -319,7 +318,7 @@ class CountingImageDataset:
         """
         sql = """
         SELECT ann_id, class_key, ann_type, source, instance_index,
-            geometry_json, score, meta_json, role
+            geometry_json, meta_json, role
         FROM annotations
         WHERE image_id = ?
         ORDER BY role ASC, class_key ASC, instance_index ASC, ann_id ASC
@@ -342,7 +341,6 @@ class CountingImageDataset:
                 "source": r["source"],
                 "instance_index": r["instance_index"],
                 "geometry": json.loads(r["geometry_json"]),
-                "score": r["score"],
                 "meta": json.loads(r["meta_json"]),
                 "role": role,
             }
