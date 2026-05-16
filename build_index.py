@@ -30,20 +30,20 @@ from counting_dataset.adapters.fsc147 import FSC147Adapter
 from counting_dataset.adapters.penguin import PenguinAdapter
 
 DATASETS = {
-    "birds":            (True,  BirdsAdapter()),
-    "dota":             (True,  DOTAAdapter()),
-    "kenyan_wildlife":  (True,  KenyanWildlifeAdapter()),
-    "malaria":          (True,  MalariaAdapter()),
-    "aerial_elephant":  (False, AerialElephantAdapter()),
-    "fsc147":           (False, FSC147Adapter()),
-    "penguin":          (False, PenguinAdapter()),
+    "birds": (True, BirdsAdapter()),
+    # "dota":             (True,  DOTAAdapter()),
+    # "kenyan_wildlife":  (True,  KenyanWildlifeAdapter()),
+    # "malaria":          (True,  MalariaAdapter()),
+    "aerial_elephant": (False, AerialElephantAdapter()),
+    "fsc147": (False, FSC147Adapter()),
+    "penguin": (False, PenguinAdapter()),
 }
 
 # ---------------------------------------------------------------------------
 # Paths — relative to this script
 # ---------------------------------------------------------------------------
 
-HERE     = Path(__file__).parent
+HERE = Path(__file__).parent
 RAW_ROOT = HERE / "raw"
 OUT_ROOT = HERE / "counting" / "data"
 
@@ -79,8 +79,8 @@ if __name__ == "__main__":
     conn.row_factory = sqlite3.Row
 
     # Totals
-    total_images   = conn.execute("SELECT COUNT(*) FROM images").fetchone()[0]
-    total_classes  = conn.execute("SELECT COUNT(*) FROM classes").fetchone()[0]
+    total_images = conn.execute("SELECT COUNT(*) FROM images").fetchone()[0]
+    total_classes = conn.execute("SELECT COUNT(*) FROM classes").fetchone()[0]
     total_instances = conn.execute(
         "SELECT COUNT(*) FROM annotations WHERE role = 'instance'"
     ).fetchone()[0]
@@ -97,17 +97,18 @@ if __name__ == "__main__":
     rows = conn.execute("""
         SELECT
             i.dataset,
-            COUNT(DISTINCT i.image_id)  AS num_images,
-            COUNT(DISTINCT a.class_key) AS num_classes,
-            COUNT(a.ann_id)             AS num_instances
-        FROM images i
-        LEFT JOIN annotations a
-            ON a.image_id = i.image_id AND a.role = 'instance'
+            COUNT(DISTINCT icc.image_id) AS num_images,
+            COUNT(DISTINCT icc.class_key) AS num_classes,
+            SUM(icc.count)               AS num_instances
+        FROM image_class_counts icc
+        JOIN images i ON i.image_id = icc.image_id
         GROUP BY i.dataset
         ORDER BY i.dataset
     """).fetchall()
     for r in rows:
-        print(f"  {r['dataset']:<20} {r['num_images']:>8,} {r['num_classes']:>8} {r['num_instances']:>12,}")
+        print(
+            f"  {r['dataset']:<20} {r['num_images']:>8,} {r['num_classes']:>8} {r['num_instances']:>12,}"
+        )
 
     # Per-class breakdown
     print()
