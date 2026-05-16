@@ -31,9 +31,9 @@ from counting_dataset.adapters.penguin import PenguinAdapter
 
 DATASETS = {
     "birds": (True, BirdsAdapter()),
-    # "dota":             (True,  DOTAAdapter()),
-    # "kenyan_wildlife":  (True,  KenyanWildlifeAdapter()),
-    # "malaria":          (True,  MalariaAdapter()),
+    "dota": (True, DOTAAdapter()),
+    "kenyan_wildlife": (True, KenyanWildlifeAdapter()),
+    "malaria": (True, MalariaAdapter()),
     "aerial_elephant": (False, AerialElephantAdapter()),
     "fsc147": (False, FSC147Adapter()),
     "penguin": (False, PenguinAdapter()),
