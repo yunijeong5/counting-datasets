@@ -62,9 +62,9 @@ class BirdsAdapter(DatasetAdapter):
     * One class: birds/bird.
     * scene ("sky" or "reeds") stored in image meta for meta_filter use.
     * Two annotation roles per labeled point:
-      - POINT / role="instance" / source=ORIGINAL — ground-truth count.
-      - HBB   / role="hbb"      / source=GENERATED — Otsu pseudo-bbox in global
-        coords (emitted only when cache entry exists for the tile).
+      - HBB   / role="instance" / source=GENERATED — Otsu pseudo-bbox; canonical
+        counted format (emitted only when cache entry exists for the tile).
+      - POINT / role="point"    / source=ORIGINAL  — raw annotator point; auxiliary.
     """
 
     dataset = "birds"
@@ -228,7 +228,7 @@ class BirdsAdapter(DatasetAdapter):
                             class_key=class_key,
                             ann_type=AnnType.POINT,
                             geometry=pt_geom,
-                            role="instance",
+                            role="point",
                             source=SourceType.ORIGINAL,
                             instance_index=inst_idx,
                         )
@@ -254,7 +254,7 @@ class BirdsAdapter(DatasetAdapter):
                                 class_key=class_key,
                                 ann_type=AnnType.HBB,
                                 geometry=hbb_geom,
-                                role="hbb",
+                                role="instance",
                                 source=SourceType.GENERATED,
                                 instance_index=inst_idx,
                             )
