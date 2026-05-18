@@ -101,7 +101,47 @@ def main():
         print(f"\n--- Available splits ({ds_name}) ---")
         print(index.available_splits(dataset=ds_name))
 
-    exit()
+    # ------------------------------------------------------------------
+    # BIRDS
+    # ------------------------------------------------------------------
+    _print_class_summary(index, "birds", apply_policy=False, limit=5)
+
+    print("\n=== Birds: load_dataset('birds') (image-centric) ===")
+    ds_birds = index.load_dataset("birds", load_images=False)
+    _peek_image_dataset(ds_birds, "Birds image-centric peek")
+
+    # Sanity checks:
+    # - instances should be HBB (role="instance", source=GENERATED)
+    # - original point annotations should appear under aux["point"]
+    if len(ds_birds) > 0:
+        _, tgt = ds_birds[0]
+        print("\nBirds sanity checks on first image:")
+        inst = tgt.get("instances", {}) or {}
+        if inst:
+            ck0 = sorted(inst.keys())[0]
+            anns0 = inst[ck0]
+            ann_types0 = sorted({a.get("ann_type") for a in anns0})
+            print(f"  instances: {ck0} -> {len(anns0)} anns, ann_types={ann_types0}")
+        aux = tgt.get("aux", {}) or {}
+        point_aux = aux.get("point", {}) or {}
+        if point_aux:
+            ck0 = sorted(point_aux.keys())[0]
+            print(f"  aux['point'] present for class {ck0}: {len(point_aux[ck0])} point annotations")
+        else:
+            print("  aux['point']: (none — bbox cache may not have been generated)")
+
+    birds_classes = index.get_classes(datasets=["birds"], apply_policy=False)
+    if birds_classes:
+        birds_ck = birds_classes[0]["class_key"]
+        print(f"\n=== Birds: load_class({birds_ck}) ===")
+        ds_birds_class = index.load_class(birds_ck, load_images=False)
+        print("  class-centric length:", len(ds_birds_class))
+        if len(ds_birds_class) > 0:
+            _, tgt = ds_birds_class[0]
+            print("  count (HBB instances):", tgt["count"])
+            print("  aux roles present:", list(tgt.get("aux", {}).keys()))
+        meta = ds_birds_class.image_metadata()
+        print(f"  image_metadata(): {len(meta)} entries, keys={list(meta[0].keys()) if meta else []}")
 
     # ------------------------------------------------------------------
     # AERIAL ELEPHANT
@@ -153,13 +193,12 @@ def main():
     _peek_image_dataset(ds_dota, "DOTA image-centric peek")
 
     # Sanity checks:
-    # - instances should be OBB (role="instance") and contribute to counts
-    # - HBB should appear under aux["hbb"]
+    # - instances should be HBB (role="instance") and contribute to counts
+    # - OBB should appear under aux["obb"]
     if len(ds_dota) > 0:
         img, tgt = ds_dota[0]
         print("\nDOTA sanity checks on first sample:")
 
-        # show one class bucket’s instance ann_types
         inst = tgt.get("instances", {}) or {}
         if inst:
             ck0 = sorted(inst.keys())[0]
@@ -175,17 +214,17 @@ def main():
             )
 
         aux = tgt.get("aux", {}) or {}
-        hbb_aux = aux.get("hbb", {}) or {}
-        if hbb_aux:
-            ck0 = sorted(hbb_aux.keys())[0]
-            boxes = hbb_aux[ck0]
+        obb_aux = aux.get("obb", {}) or {}
+        if obb_aux:
+            ck0 = sorted(obb_aux.keys())[0]
+            boxes = obb_aux[ck0]
             print(
-                f"  aux['hbb'] present for class {ck0}: {len(boxes)} (showing up to 2)"
+                f"  aux[‘obb’] present for class {ck0}: {len(boxes)} (showing up to 2)"
             )
             for b in boxes[:2]:
-                print("    hbb:", b["geometry"])
+                print("    obb:", b["geometry"])
         else:
-            print("  aux['hbb']: (none in this sample)")
+            print("  aux[‘obb’]: (none in this sample)")
 
     # Class-centric load: pick one DOTA class
     dota_classes = index.get_classes(datasets=["dota"], apply_policy=False)
