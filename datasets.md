@@ -6,18 +6,20 @@ All datasets are indexed through dataset-specific adapters and normalized into a
 
 ## Summary Table
 
-| Dataset                       | Domain          | # Images    | Annotation Type            | # Classes | Images per Class (mean) | Total Objects | Objects per Image (mean) | Multi-class Images | License         |
-| ----------------------------- | --------------- | ----------- | -------------------------- | --------- | ----------------------- | ------------- | ------------------------ | ------------------ | --------------- |
-| Aerial Elephant Dataset       | Aerial wildlife | 2,074       | Points                     | 1         | –                       | 15,581        | 7.51                     | No                 | CC0             |
-| Birds (Tree Swallows Flock)   | Wildlife        | TBD (tiles) | Points + pseudo-HBB        | 1         | –                       | TBD           | TBD                      | No                 | TBD             |
-| DOTA v1.5                     | Aerial urban    | 1,869       | Bounding boxes (OBB + HBB) | 16        | 343.38                  | 280,196       | 149.92                   | Yes                | Apache 2.0      |
-| FSC-147                       | Web images      | 6,135       | Points + exemplars (HBB)   | 147       | 41.73                   | 343,693       | 56.02                    | No                 | MIT             |
-| Kenyan Wildlife Aerial Survey | Aerial wildlife | 561         | Bounding boxes (HBB)       | 3         | 197.67                  | 4,304         | 7.67                     | Yes                | CC0             |
-| Malaria Infected Blood Smears | Microscopy      | 1,328       | Bounding boxes (HBB)       | 7         | 434.00                  | 86,035        | 64.79                    | Yes                | CC BY-NC-SA 3.0 |
-| Penguins                      | Wildlife        | 81,941      | Crowd-sourced points       | 1         | –                       | 68,901        | 17.84                    | No                 | CC BY 4.0       |
+| Dataset                       | Domain          | # Images | Annotation Type (canonical → auxiliary) | # Classes | Images per Class (mean) | Total Objects | Objects per Image (mean) | Multi-class Images | License         |
+| ----------------------------- | --------------- | -------- | --------------------------------------- | --------- | ----------------------- | ------------- | ------------------------ | ------------------ | --------------- |
+| Aerial Elephant Dataset       | Aerial wildlife | 2,074    | Points                                  | 1         | –                       | 15,581        | 7.51                     | No                 | CC0             |
+| Birds (Tree Swallows Flock)   | Wildlife        | 2        | HBB (pseudo-bbox) → points              | 1         | 2                       | 18,696        | 9,348                    | No                 | TBD             |
+| DOTA v1.5                     | Aerial urban    | 1,869    | HBB → OBB                               | 16        | 343.38                  | 280,196       | 149.92                   | Yes                | Apache 2.0      |
+| FSC-147                       | Web images      | 6,135    | Points → exemplar HBB                   | 147       | 41.73                   | 343,693       | 56.02                    | No                 | MIT             |
+| Kenyan Wildlife Aerial Survey | Aerial wildlife | 561      | HBB                                     | 3         | 197.67                  | 4,304         | 7.67                     | Yes                | CC0             |
+| Malaria Infected Blood Smears | Microscopy      | 1,328    | HBB                                     | 7         | 434.00                  | 86,035        | 64.79                    | Yes                | CC BY-NC-SA 3.0 |
+| Penguins                      | Wildlife        | 81,941   | Crowd-sourced points                    | 1         | –                       | 68,901        | 17.84                    | No                 | CC BY 4.0       |
 
 ### Notes on interpretation
 
+- **# Images** counts images in the index. For Birds this is 2 (the original .tif files); tiling for model training is handled downstream.
+- **Annotation Type** lists the canonical (`role="instance"`) format first, then auxiliary formats after `→`. Only canonical annotations contribute to object counts.
 - **Images per Class (mean)** is not meaningful for single-class datasets and hence omitted.
 - **Total Objects** and **Objects / Image** are computed using instance-only annotations (`role="instance"`). See [design.md](design.md#annotation-roles).
 
@@ -39,29 +41,36 @@ This dataset is designed for large-scale wildlife counting from aerial imagery. 
 
 ### 🐦 Birds (Tree Swallows Flock)
 
-This dataset consists of two large high-resolution aerial photographs of shorebird flocks, captured in two distinct scenes ("sky" and "reeds"). Because the source images are too large to annotate or train on directly, they are split into 200×200 pixel tiles before indexing; **the index stores the tiles, not the original full-resolution images**. Labels were created at tile level using the VGG Image Annotator (VIA) tool and record each bird as a point. Pseudo-bounding boxes are derived per tile from Otsu thresholding and stored as auxiliary (`role="aux"`) annotations; they do not contribute to bird counts.
+This dataset consists of two large high-resolution aerial photographs of tree swallow flocks, captured in two distinct scenes: an open sky background ("sky", `_DSC5214.tif`) and a dense reed-bed background ("reeds", `_DSC5295.tif`). Labels were created at tile level using the VGG Image Annotator (VIA) tool and record each bird as a point click.
+
+**The index stores the original .tif files as the unit of analysis**, not the tiles. Tile-local point annotations are translated to global image coordinates during index build. Per-tile Otsu pseudo-bounding boxes (computed by `generate_bird_bbox_cache.py`) are stored as `role="instance"` HBB annotations — the canonical counted format — while the original point annotations are stored as `role="point"` auxiliary annotations.
+
+Tiling for model training is handled downstream (e.g., via a tiling wrapper), consistent with how all other large-image datasets in this API are handled.
 
 The two scenes can be loaded independently via `meta_filter={"scene": "sky"}` or `meta_filter={"scene": "reeds"}`, or together by omitting the filter.
 
+**Pre-processing required:** before building the index, run `python raw/birds/generate_bird_bbox_cache.py` once to generate `raw/birds/pseudo_bboxes_cache.json`.
+
 - **Domain:** Wildlife monitoring
 - **Source images:** 2 high-resolution TIF photographs
-- **Scenes:** 2 — `sky` (open sky background) and `reeds` (dense reed-bed background)
-- **Indexed unit:** 200×200 px tiles (edge tiles may be smaller)
-- **Annotations:** Point annotations per tile; pseudo-bounding boxes (HBB) as auxiliary
+- **Tile sizes used during annotation:** 200×200 px (sky scene), 160×160 px (reeds scene)
+- **Scenes:** 2 — `sky` and `reeds`
+- **Annotations (canonical):** HBB pseudo-bboxes derived from Otsu thresholding (`role="instance"`, `source=GENERATED`)
+- **Annotations (auxiliary):** Point annotations from VIA annotators (`role="point"`, `source=ORIGINAL`)
 - **Classes:** 1 (bird)
-- **Images (tiles):** TBD
-- **Objects per tile:** TBD
+- **Images in index:** 2
 - **License:** TBD
 
 **References**: TBD
 
 ### ✈️ DOTA v1.5
 
-DOTA is a dense, large-scale detection dataset featuring extreme object counts, heavy class imbalance, and frequent multi-class co-occurrence. In this API, OBBs are treated as canonical counting instances, with HBBs stored as auxiliary alternative geometry. We only consider the train and validation sets of DOTA v1.5 since only their annotations are published by the authors; the test set's annotations are hidden.
+DOTA is a dense, large-scale detection dataset featuring extreme object counts, heavy class imbalance, and frequent multi-class co-occurrence. In this API, **HBBs are the canonical counting format** (`role="instance"`), with OBBs stored as auxiliary alternative geometry (`role="obb"`). This reflects the fact that most downstream counting models operate on axis-aligned boxes. We only consider the train and validation sets of DOTA v1.5 since only their annotations are published by the authors; the test set's annotations are hidden.
 
 - **Domain:** Aerial urban scenes
 - **Images:** 1,869
-- **Annotations:** Oriented bounding boxes (OBB) with paired axis-aligned boxes (HBB)
+- **Annotations (canonical):** Axis-aligned bounding boxes, HBB (`role="instance"`)
+- **Annotations (auxiliary):** Oriented bounding boxes, OBB (`role="obb"`)
 - **Classes:** 16 object categories (harbor, small vehicle, baseball diamond, etc.)
 - **Image resolution:** ~420 × 350 to ~12,000 × 5,000 pixels
 - **Objects per image:** Mean ~150, Max >10,000
@@ -134,4 +143,4 @@ Together, these datasets span:
 - single-class and multi-class settings,
 - single-annotator and crowd-sourced labeling,
 - point-based and bounding-box-based annotation styles,
-- whole images and tile-based decompositions of large-format photographs.
+- small cropped images and very large high-resolution photographs (tiled downstream).

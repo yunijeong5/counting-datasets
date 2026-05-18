@@ -22,6 +22,7 @@ This project is designed to support research in **object counting** and **datase
 
 The API currently integrates the following datasets:
 
+- Birds (Tree Swallows Flock)
 - Aerial Elephant Dataset
 - DOTA v1.5
 - FSC-147
@@ -40,6 +41,9 @@ counting-datasets/
 │   ├── data/           # Built SQLite index (optional, not tracked)
 │   └── tests/
 ├── raw/                # Raw datasets (NOT tracked)
+│   └── birds/
+│       └── generate_bird_bbox_cache.py  # one-time pre-processing for Birds
+├── build_index.py      # Convenience build script with per-dataset toggles
 ├── design.md           # Architecture & design rationale
 ├── datasets.md         # Dataset descriptions & statistics
 ├── usage_example.py    # End-to-end example
@@ -74,40 +78,36 @@ Dataset-specific directory structures are also documented in the adapters and in
 
 ### 2. Build the index
 
+The easiest way to build is via the provided script, which has per-dataset toggles and prints a post-build summary:
+
+```bash
+python build_index.py
+```
+
+To control which datasets are included, edit the `DATASETS` dict at the top of `build_index.py`.
+
+**Note for the Birds dataset:** run `python raw/birds/generate_bird_bbox_cache.py` once before building to pre-compute the pseudo-bounding box cache (`raw/birds/pseudo_bboxes_cache.json`).
+
+You can also invoke the builder directly:
+
 ```python
 from pathlib import Path
 from counting_dataset.index.builder import IndexBuilder
-from counting_dataset.adapters import (
-    AerialElephantAdapter,
-    DOTAAdapter,
-    FSC147Adapter,
-    KenyanWildlifeAdapter,
-    MalariaAdapter,
-    PenguinAdapter,
-)
+from counting_dataset.adapters.birds import BirdsAdapter
+from counting_dataset.adapters.dota import DOTAAdapter
+from counting_dataset.adapters.kenyan_wildlife import KenyanWildlifeAdapter
+from counting_dataset.adapters.malaria import MalariaAdapter
 
-builder = IndexBuilder(
-    raw_root=Path("raw"),
-    out_root=Path("counting/data"),
-)
-
+builder = IndexBuilder(raw_root=Path("raw"), out_root=Path("counting/data"))
 db_path = builder.build(
-    adapters=[
-        AerialElephantAdapter(),
-        DOTAAdapter(),
-        FSC147Adapter(),
-        KenyanWildlifeAdapter(),
-        MalariaAdapter(),
-        PenguinAdapter(include_unlabeled=False),
-    ],
+    adapters=[BirdsAdapter(), DOTAAdapter(), KenyanWildlifeAdapter(), MalariaAdapter()],
     overwrite=True,
     show_progress=True,
 )
-
 print("Index built at:", db_path)
 ```
 
-This produces a single SQLite database (`index.sqlite`) containing normalized images, annotations, and derived statistics at `db_path`.
+This produces a single SQLite database (`counting/data/index.sqlite`) containing normalized images, annotations, and derived statistics.
 
 
 ### 3. Load datasets
@@ -130,10 +130,10 @@ You can load **image-centric** datasets with `index.load_dataset()`:
 ```python
 from counting_dataset import CountingDatasetIndex
 
-index = CountingDatasetIndex("counting/data/index.sqlite") # sample db_path
+index = CountingDatasetIndex("counting/data")  # root directory containing index.sqlite
 
 dataset = index.load_dataset(
-    dataset="dota"
+    "dota",
     splits={"train"},
     min_total_count=100,
 )

@@ -56,8 +56,8 @@ Key fields:
 
 - `class_key`: a stable identifier of the form `{dataset}/{slugified_name}`
   - Example: `fsc147/bird`, `malaria/red_blood_cell`, `penguin/penguin`
+- `dataset`: the dataset key this class belongs to
 - `name`: human-readable class label; original class name that is not necessarily slugified
-- `meta`: optional dataset-specific taxonomy or metadata
 
 Classes are **not global across datasets** by default. For example, a class named `"car"` in one dataset is treated as distinct from `"car"` in another dataset unless explicitly merged downstream.
 
@@ -71,11 +71,13 @@ Key fields:
 - `path`: absolute path to the image file
 - `width`, `height`: image dimensions (resolved at build time)
 - `split`: train / val / test / unspecified
-- `provenance`: traceability back to the raw dataset (original filenames, IDs, etc.)
-- `counts`: cached per-class instance counts for fast queries
-- `meta`: dataset-specific metadata (sensor information, crowd statistics, etc.)
+- `dataset`: the dataset key (e.g., `"birds"`, `"dota"`)
+- `original_relpath`: normalized relative path within the raw dataset directory; used as the stable input to `make_image_id`
+- `original_filename`: the image's filename in the raw dataset
+- `original_id`: optional dataset-native image identifier (e.g., a checksum or COCO image ID)
+- `meta`: sparse dictionary of metadata needed for API-level filtering via `meta_filter` (e.g., `{"scene": "sky"}`); omit fields not used for filtering
 
-Images are **dataset-scoped**, but globally addressable via `image_id`. The `counts` field is populated during index construction based on associated annotations with `role="instance"`.
+Images are **dataset-scoped**, but globally addressable via `image_id`. Per-class instance counts are stored in the derived `image_class_counts` table, not on the record itself.
 
 Although images are presented to users in a human-friendly order (by filename/path), `image_id` remains the canonical internal identifier used for joins, deduplication, and reproducibility.
 
@@ -91,19 +93,23 @@ Key fields:
 - `ann_type`: POINT, HBB (axis-aligned box), OBB (oriented box), etc.
 - `geometry`: structured geometry payload corresponding to `ann_type`
 - `role`: semantic role of the annotation (see below)
-- `source`: ORIGINAL, CROWDSOURCE, GENERATED, etc.
+- `source`: ORIGINAL, CROWDSOURCE, or GENERATED
+- `instance_index`: per-image ordinal used to disambiguate annotations with identical geometry
 
 #### Annotation Roles
 
 The `role` field distinguishes **counted objects** from auxiliary annotations.
 
 - `role="instance"`
-  Objects that contribute to counts and dataset statistics
+  Canonical counted objects. Only these annotations contribute to counts and dataset statistics.
 
-- `role!="instance"`
-  Auxiliary annotations such as:
-  - exemplar boxes in FSC147
-  - alternative geometries of the _same underlying objects_ (e.g., HBB representations paired with OBB annotations in DOTA v1.5)
+- `role != "instance"`
+  Auxiliary annotations that describe the same objects in an alternative form:
+  - `role="obb"` — oriented bounding boxes in DOTA (paired with the canonical HBB instances)
+  - `role="point"` — original annotator points in the Birds dataset (paired with the canonical HBB pseudo-bboxes)
+  - `role="exemplar"` — exemplar boxes in FSC-147
+
+The choice of which geometry is canonical (`role="instance"`) reflects the annotation format most practical for downstream model use. For example, DOTA and Birds both expose HBB as the canonical format because most models expect axis-aligned boxes, while the richer OBB or point annotations are preserved as auxiliary. Crucially, this choice is made per-adapter, not globally.
 
 All counting logic **only** considers annotations with `role == "instance"`. This allows the index to store rich auxiliary information without corrupting counting semantics.
 
@@ -170,24 +176,26 @@ The build process proceeds in three phases:
 
 The resulting index is immutable in practice: it is not incrementally updated. Any change in datasets, adapter logic, or schema requires rebuilding the index from scratch.
 
-Typical build would look like:
+The recommended way to build the index is via `build_index.py` at the project root, which provides per-dataset toggles and runs a post-build sanity check via `CountingDatasetIndex`. Alternatively, the builder can be invoked directly:
 
 ```python
-builder = IndexBuilder(raw_root=Path("raw"), out_root=index_dest)
+from counting_dataset.index.builder import IndexBuilder
+
+builder = IndexBuilder(raw_root=Path("raw"), out_root=Path("counting/data"))
 db_path = builder.build(
     [
-        MalariaAdapter(),
-        KenyanWildlifeAdapter(),
-        PenguinAdapter(),
-        AerialElephantAdapter(),
-        FSC147Adapter(),
+        BirdsAdapter(),
         DOTAAdapter(),
+        KenyanWildlifeAdapter(),
+        MalariaAdapter(),
     ],
     overwrite=True,
     show_progress=True,
 )
 print("Built:", db_path)
 ```
+
+**Note for the Birds dataset:** before building the index, run `python raw/birds/generate_bird_bbox_cache.py` once to pre-compute and cache per-tile Otsu pseudo-bounding boxes in `raw/birds/pseudo_bboxes_cache.json`. The adapter reads from this cache at build time.
 
 ### 5.2 HPC / Filesystem Robustness
 
@@ -298,25 +306,28 @@ The returned `target` dictionary summarizes all annotations associated with the 
   "height": 768,
   "total_count": 18,
   "counts": {
-    "dota/harbor": 3,
+    "dota/harbor": 3,   # HBB count (role="instance")
     "dota/ship": 15
   },
   "instances": {
-    "dota/harbor": List[InstanceAnnotationRecord],
-    "dota/ship": List[InstanceAnnotationRecord]
+    # HBB annotations — canonical counted format
+    "dota/harbor": [{"ann_id": ..., "ann_type": "hbb", "geometry": {...}, ...}],
+    "dota/ship":   [...]
   },
   "aux": {
-    "hbb": {
-      "dota/harbor": List[InstanceAnnotationRecord],
-      "dota/ship": List[InstanceAnnotationRecord]
+    # OBB annotations — alternative geometry, grouped by role
+    "obb": {
+      "dota/harbor": [{"ann_id": ..., "ann_type": "obb", "geometry": {...}, ...}],
+      "dota/ship":   [...]
     }
   },
-  "review_status": "reviewed",
+  "review_status": "na",
   "num_annotators": 0,
   "num_point_votes": 0
 }
 ```
-In this view, multiple classes may be present in a single sample. Only annotations with `role="instance"` contribute to counts, and auxiliary annotations (e.g., exemplar boxes or alternative geometries) are grouped under `aux` by role.
+
+In this view, multiple classes may be present in a single sample. Only annotations with `role="instance"` contribute to counts; auxiliary annotations are grouped under `aux` by role name. `review_status` is `"na"` for non-crowd datasets; crowd metadata is only populated for the Penguin dataset.
 
 ### 8.3 CountingClassDataset (Class-Centric)
 
@@ -346,17 +357,20 @@ The returned `target` focuses exclusively on the selected class:
   "width": 1024,
   "height": 768,
   "count": 3,
-  "instances": List[InstanceAnnotationRecord],
+  "instances": [{"ann_id": ..., "ann_type": "hbb", "geometry": {...}, ...}],
   "aux": {
-    "hbb": List[InstanceAnnotationRecord]
+    # alternative geometries for the same objects, keyed by role
+    "obb": [{"ann_id": ..., "ann_type": "obb", "geometry": {...}, ...}]
   },
-  "review_status": "reviewed",
+  "review_status": "na",
   "num_annotators": 0,
   "num_point_votes": 0
 }
 ```
 
-In this view, exactly one semantic class is represented per dataset instance. The counts and instances refer **only** to the requested class, and auxiliary annotations are restricted to alternative annotations for that class.
+In this view, exactly one semantic class is represented per dataset instance. The `count` and `instances` refer **only** to the requested class (`role="instance"` annotations), and `aux` contains alternative-role annotations for that same class.
+
+`CountingClassDataset` also exposes an `image_metadata()` method that returns lightweight per-image records (image ID, path, dimensions, count) without loading annotations — useful when downstream code needs to tile or sample images before loading full annotation data.
 
 ## 9. Ordering and Determinism
 
